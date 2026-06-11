@@ -2,6 +2,7 @@
 
 pub mod error;
 pub mod inventory;
+pub mod invoices;
 pub mod orders;
 pub mod pagination;
 pub mod payments;

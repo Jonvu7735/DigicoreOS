@@ -2,6 +2,7 @@
 
 pub mod health;
 pub mod inventory;
+pub mod invoices;
 pub mod metrics;
 pub mod orders;
 pub mod payments;
