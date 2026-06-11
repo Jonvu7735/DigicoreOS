@@ -80,6 +80,7 @@ sqlx = { version = "0.8", default-features = false, features = [
     "macros", # for the `sqlx::migrate!` embed macro (NOT compile-time query checks)
 ] }
 async-nats = "0.38"
+futures = "0.3"   # Stream combinators for the reporting-svc event consumer
 
 # --- security (infra layer ONLY) ---
 jsonwebtoken = "9"

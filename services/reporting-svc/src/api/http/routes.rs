@@ -16,9 +16,11 @@ pub fn router(state: AppState) -> Router {
 
     let reporting_routes = Router::new()
         .route("/health", get(handlers::health::health))
-        .route("/ready", get(handlers::health::ready));
-    // Read-model slices (overview, sales-summary, crm-funnel, hrm-summary, …)
-    // add their RBAC-guarded routes here as they land.
+        .route("/ready", get(handlers::health::ready))
+        // --- dashboards (RBAC-guarded, ARCHITECTURE.md §3.5) ---
+        .route("/sales-summary", get(handlers::sales::summary));
+    // Further read-model slices (overview, crm-funnel, hrm-summary, …) add
+    // their RBAC-guarded routes here as they land.
 
     Router::new()
         .nest("/api/v1/reporting", reporting_routes)
