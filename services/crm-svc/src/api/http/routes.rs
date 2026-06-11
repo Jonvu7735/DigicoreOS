@@ -16,9 +16,17 @@ pub fn router(state: AppState) -> Router {
 
     let crm_routes = Router::new()
         .route("/health", get(handlers::health::health))
-        .route("/ready", get(handlers::health::ready));
-    // Domain slices (customers, contacts, deals, activities) add their
-    // RBAC-guarded routes here as they land.
+        .route("/ready", get(handlers::health::ready))
+        // --- customers (RBAC-guarded, ARCHITECTURE.md §3.3) ---
+        .route(
+            "/customers",
+            get(handlers::customers::list).post(handlers::customers::create),
+        )
+        .route(
+            "/customers/{customer_id}",
+            get(handlers::customers::get).patch(handlers::customers::update),
+        );
+    // Further slices (contacts, deals, activities) add their routes here.
 
     Router::new()
         .nest("/api/v1/crm", crm_routes)
