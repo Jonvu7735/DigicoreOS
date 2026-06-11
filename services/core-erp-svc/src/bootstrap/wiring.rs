@@ -12,6 +12,7 @@ use sqlx::PgPool;
 use crate::api;
 use crate::bootstrap::config::AppConfig;
 use crate::domain::inventory::services::InventoryService;
+use crate::domain::invoices::services::InvoiceService;
 use crate::domain::orders::ports::OrderRepository;
 use crate::domain::orders::services::OrderService;
 use crate::domain::payments::services::PaymentService;
@@ -20,6 +21,7 @@ use crate::domain::products::services::ProductService;
 use crate::domain::shared::types::Clock;
 use crate::infra;
 use crate::infra::db::inventory_repo_pg::PgInventoryRepo;
+use crate::infra::db::invoice_repo_pg::PgInvoiceRepo;
 use crate::infra::db::order_repo_pg::PgOrderRepo;
 use crate::infra::db::payment_repo_pg::PgPaymentRepo;
 use crate::infra::db::product_repo_pg::PgProductRepo;
@@ -37,6 +39,7 @@ pub struct AppState {
     pub orders: Arc<OrderService>,
     pub payments: Arc<PaymentService>,
     pub inventory: Arc<InventoryService>,
+    pub invoices: Arc<InvoiceService>,
 }
 
 /// Construct infrastructure adapters and bind them to domain ports.
@@ -61,12 +64,17 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
     let orders = Arc::new(OrderService::new(order_repo.clone(), clock.clone()));
     let payments = Arc::new(PaymentService::new(
         Arc::new(PgPaymentRepo::new(db.clone())),
-        order_repo,
+        order_repo.clone(),
         clock.clone(),
     ));
     let inventory = Arc::new(InventoryService::new(
         Arc::new(PgInventoryRepo::new(db.clone())),
         product_repo,
+        clock.clone(),
+    ));
+    let invoices = Arc::new(InvoiceService::new(
+        Arc::new(PgInvoiceRepo::new(db.clone())),
+        order_repo,
         clock,
     ));
 
@@ -87,6 +95,7 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
         orders,
         payments,
         inventory,
+        invoices,
     })
 }
 

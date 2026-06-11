@@ -51,8 +51,18 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/inventory/adjustments",
             get(handlers::inventory::list_adjustments).post(handlers::inventory::create_adjustment),
+        )
+        // --- invoices (API-GATEWAY.md §4.5) ---
+        .route(
+            "/invoices",
+            get(handlers::invoices::list).post(handlers::invoices::create),
+        )
+        .route("/invoices/{invoice_id}", get(handlers::invoices::get))
+        .route(
+            "/invoices/{invoice_id}/cancel",
+            post(handlers::invoices::cancel),
         );
-    // TODO(Phase 3 cont.): invoices (API-GATEWAY.md §4).
+    // ERP core slices complete: products, orders, payments, inventory, invoices.
 
     Router::new()
         .nest("/api/v1/erp", erp_routes)
