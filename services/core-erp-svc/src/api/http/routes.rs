@@ -45,8 +45,14 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/orders/{order_id}/payments",
             get(handlers::payments::list).post(handlers::payments::record),
+        )
+        // --- inventory (API-GATEWAY.md §4.3) ---
+        .route("/inventory", get(handlers::inventory::list_stock))
+        .route(
+            "/inventory/adjustments",
+            get(handlers::inventory::list_adjustments).post(handlers::inventory::create_adjustment),
         );
-    // TODO(Phase 3 cont.): inventory, invoices (API-GATEWAY.md §4).
+    // TODO(Phase 3 cont.): invoices (API-GATEWAY.md §4).
 
     Router::new()
         .nest("/api/v1/erp", erp_routes)
