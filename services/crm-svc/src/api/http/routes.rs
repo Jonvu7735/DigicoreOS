@@ -44,8 +44,17 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/contacts/{contact_id}",
             get(handlers::contacts::get).patch(handlers::contacts::update),
+        )
+        // --- activities (RBAC-guarded, ARCHITECTURE.md §3.3) ---
+        .route(
+            "/activities",
+            get(handlers::activities::list).post(handlers::activities::create),
+        )
+        .route(
+            "/activities/{activity_id}",
+            get(handlers::activities::get).patch(handlers::activities::update),
         );
-    // Further slices (activities) add their routes here.
+    // CRM slices complete: customers, deals, contacts, activities.
 
     Router::new()
         .nest("/api/v1/crm", crm_routes)
