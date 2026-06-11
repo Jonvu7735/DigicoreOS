@@ -3,4 +3,5 @@
 pub mod attendance;
 pub mod employees;
 pub mod health;
+pub mod leave;
 pub mod metrics;
