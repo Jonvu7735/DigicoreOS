@@ -22,8 +22,8 @@ members = [
     "libs/platform-observability",
     "services/auth-svc",
     "services/core-erp-svc",
+    "services/crm-svc",
     # Phase 3+ – uncomment as each service is bootstrapped:
-    # "services/crm-svc",
     # "services/hrm-svc",
     # "services/reporting-svc",
     # "services/ai-svc",
