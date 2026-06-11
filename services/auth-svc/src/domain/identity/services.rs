@@ -11,8 +11,8 @@ use uuid::Uuid;
 
 use crate::domain::identity::entities::{RefreshToken, User};
 use crate::domain::identity::ports::{
-    EventPublisher, IssuedToken, PasswordHasher, RefreshTokenHasher, RefreshTokenRepository,
-    RoleRepository, TenantRepository, TokenIssuer, UserRepository,
+    AccessTokenClaims, EventPublisher, IssuedToken, PasswordHasher, RefreshTokenHasher,
+    RefreshTokenRepository, RoleRepository, TenantRepository, TokenIssuer, UserRepository,
 };
 use crate::domain::shared::error::{DomainError, DomainResult};
 use crate::domain::shared::types::{Clock, Email, TenantId, UserId};
@@ -143,6 +143,12 @@ impl IdentityService {
             .find_by_id(user_id)
             .await?
             .ok_or_else(|| DomainError::NotFound(format!("user {user_id}")))
+    }
+
+    /// Verify an access token (used by the auth middleware – AUTH-FLOW.md §7).
+    /// Delegates to the `TokenIssuer` port; no DB access.
+    pub fn validate_access_token(&self, token: &str) -> DomainResult<AccessTokenClaims> {
+        self.token_issuer.validate_access_token(token)
     }
 
     // --- internals -----------------------------------------------------------

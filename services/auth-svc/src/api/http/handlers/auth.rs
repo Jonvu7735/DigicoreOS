@@ -12,6 +12,7 @@ use crate::api::http::dto::auth::{
     LoginRequest, LoginResponse, LogoutRequest, RefreshRequest, RefreshResponse, UserSummary,
 };
 use crate::api::http::dto::error::ApiError;
+use crate::api::http::middleware::AuthContext;
 use crate::bootstrap::wiring::AppState;
 use crate::domain::shared::types::{Email, TenantId};
 
@@ -89,12 +90,20 @@ pub async fn logout(
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
-/// `GET /api/v1/auth/me`
+/// `GET /api/v1/auth/me` – profile of the authenticated caller.
 ///
-/// TODO(Phase 1.3): extract `AuthContext` (user_id/tenant_id/roles) from the
-/// verified JWT via middleware, then call `identity.me(&ctx.user_id)`.
-pub async fn me(State(_state): State<AppState>) -> Result<Json<UserSummary>, ApiError> {
-    Err(ApiError::not_implemented(
-        "GET /me requires the JWT auth middleware (Phase 1.3)",
-    ))
+/// `AuthContext` (the extractor) verifies the bearer JWT; the active tenant and
+/// roles come from the token, the profile from the user store.
+pub async fn me(
+    State(state): State<AppState>,
+    ctx: AuthContext,
+) -> Result<Json<UserSummary>, ApiError> {
+    let user = state.identity.me(&ctx.user_id).await?;
+    Ok(Json(UserSummary {
+        id: user.id.to_string(),
+        email: user.email.to_string(),
+        display_name: user.display_name,
+        tenant_id: ctx.tenant_id.0,
+        roles: ctx.roles,
+    }))
 }
