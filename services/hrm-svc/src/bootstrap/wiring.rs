@@ -11,9 +11,12 @@ use sqlx::PgPool;
 
 use crate::api;
 use crate::bootstrap::config::AppConfig;
+use crate::domain::attendance::services::AttendanceService;
+use crate::domain::employees::ports::EmployeeRepository;
 use crate::domain::employees::services::EmployeeService;
 use crate::domain::shared::types::Clock;
 use crate::infra;
+use crate::infra::db::attendance_repo_pg::PgAttendanceRepo;
 use crate::infra::db::employee_repo_pg::PgEmployeeRepo;
 use crate::infra::time::clock::SystemClock;
 
@@ -26,6 +29,7 @@ pub struct AppState {
     /// Verifies the RS256 access tokens issued by auth-svc.
     pub verifier: Arc<JwtVerifier>,
     pub employees: Arc<EmployeeService>,
+    pub attendance: Arc<AttendanceService>,
 }
 
 /// Construct infrastructure adapters and bind them to domain ports.
@@ -44,8 +48,11 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
     )?);
 
     let clock: Arc<dyn Clock> = Arc::new(SystemClock);
-    let employees = Arc::new(EmployeeService::new(
-        Arc::new(PgEmployeeRepo::new(db.clone())),
+    let employee_repo: Arc<dyn EmployeeRepository> = Arc::new(PgEmployeeRepo::new(db.clone()));
+    let employees = Arc::new(EmployeeService::new(employee_repo.clone(), clock.clone()));
+    let attendance = Arc::new(AttendanceService::new(
+        Arc::new(PgAttendanceRepo::new(db.clone())),
+        employee_repo,
         clock,
     ));
 
@@ -63,6 +70,7 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
         metrics,
         verifier,
         employees,
+        attendance,
     })
 }
 

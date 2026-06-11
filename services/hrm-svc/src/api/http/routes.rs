@@ -26,8 +26,17 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/employees/{employee_id}/terminate",
             post(handlers::employees::terminate),
+        )
+        // --- attendance (RBAC-guarded, ARCHITECTURE.md §3.4) ---
+        .route(
+            "/attendance",
+            get(handlers::attendance::list).post(handlers::attendance::record),
+        )
+        .route(
+            "/attendance/{attendance_id}",
+            get(handlers::attendance::get),
         );
-    // Further slices (attendance, leave) add their routes here.
+    // Further slices (leave) add their routes here.
 
     Router::new()
         .nest("/api/v1/hrm", hrm_routes)
