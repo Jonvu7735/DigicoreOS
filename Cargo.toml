@@ -1,0 +1,84 @@
+# DigicoreOS – core monorepo workspace.
+#
+# Governing docs (root of repo / project knowledge):
+#   AI-FIRST-ARCHITECTURE.md  – per-service layout & dependency rules
+#   ARCHITECTURE.md           – services & responsibilities
+#   EVENTS.md                 – event contracts (source of truth for libs/event-models)
+#   DATA-STRATEGY.md          – database-per-service, outbox pattern
+#   OBSERVABILITY.md          – logs/metrics/traces contract
+#
+# Layout:
+#   libs/      – shared crates (contracts, observability). NEVER business logic.
+#   services/  – one crate per microservice (bounded contexts).
+#   verticals/ – sector modules (retail, trade-export, ...). Consume core via
+#                public APIs and events ONLY; never listed as path deps of core.
+
+[workspace]
+resolver = "2"
+members = [
+    "libs/event-models",
+    "libs/platform-observability",
+    "services/auth-svc",
+    # Phase 3+ – uncomment as each service is bootstrapped:
+    # "services/core-erp-svc",
+    # "services/crm-svc",
+    # "services/hrm-svc",
+    # "services/reporting-svc",
+    # "services/ai-svc",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+publish = false
+
+[workspace.dependencies]
+# --- internal shared crates ---
+event-models = { path = "libs/event-models" }
+platform-observability = { path = "libs/platform-observability" }
+
+# --- async runtime & web ---
+tokio = { version = "1", features = ["full"] }
+axum = "0.8"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace"] }
+
+# --- serialization & errors ---
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+anyhow = "1"
+async-trait = "0.1"
+
+# --- ids & time ---
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# --- observability (OBSERVABILITY.md) ---
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+metrics = "0.24"
+metrics-exporter-prometheus = { version = "0.16", default-features = false }
+
+# --- data & messaging (infra layer ONLY) ---
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio",
+    "postgres",
+    "uuid",
+    "chrono",
+    "migrate",
+] }
+async-nats = "0.38"
+
+# --- security (infra layer ONLY) ---
+jsonwebtoken = "9"
+argon2 = "0.5"
+
+# --- transitive pins for rustc 1.82 (MSRV). Newer releases of these crates
+# --- require a newer compiler/edition; revisit when bumping the toolchain.
+base64ct = "=1.6.0"
+time = "=0.3.36"
+home = "=0.5.11"
+idna_adapter = "=1.2.0"
+indexmap = "=2.7.1"

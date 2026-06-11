@@ -1,0 +1,21 @@
+# Local dev dependencies for DigicoreOS core (DATA-STRATEGY.md):
+# - One shared PostgreSQL instance; each service uses its own schema
+#   (auth_svc, erp_core_svc, crm_svc, hrm_svc, reporting_svc).
+# - NATS with JetStream as the event bus (EVENTS.md).
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: digicore
+      POSTGRES_PASSWORD: digicore
+      POSTGRES_DB: digicore
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+
+  nats:
+    image: nats:2.10-alpine
+    command: ["-js"]   # enable JetStream
+    ports: ["4222:4222", "8222:8222"]
+
+volumes:
+  pgdata: {}

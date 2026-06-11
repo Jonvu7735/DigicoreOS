@@ -1,0 +1,47 @@
+# auth-svc – multi-tenant authentication, users, tenants, RBAC, JWT.
+# Governing docs: SERVICE-auth-svc.md, AUTH-FLOW.md, SECURITY.md, API-GATEWAY.md, EVENTS.md.
+[package]
+name = "auth-svc"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+# internal contracts & observability
+event-models = { workspace = true }
+platform-observability = { workspace = true }
+
+# runtime & web
+tokio = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+
+# serialization / errors
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+
+# ids & time
+uuid = { workspace = true }
+chrono = { workspace = true }
+
+# data & messaging (infra layer ONLY – never imported from domain/)
+sqlx = { workspace = true }
+async-nats = { workspace = true }
+
+# security (infra layer ONLY)
+jsonwebtoken = { workspace = true }
+argon2 = { workspace = true }
+base64ct = { workspace = true }   # pinned for MSRV; transitive dep of argon2
+time = { workspace = true }       # pinned for MSRV; transitive dep of async-nats/sqlx
+home = { workspace = true }       # pinned for MSRV; transitive dep of sqlx
+idna_adapter = { workspace = true } # pinned for MSRV; transitive dep of sqlx (url/idna)
+indexmap = { workspace = true }     # pinned for MSRV; transitive (h2/sqlx)
+
+# observability
+tracing = { workspace = true }
+metrics = { workspace = true }

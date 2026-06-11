@@ -1,0 +1,14 @@
+# Shared, contracts-first crate for business events (AI-FIRST-ARCHITECTURE.md §2.3, EVENTS.md).
+# Every service depends on THIS crate for event schemas – never redefines them locally.
+[package]
+name = "event-models"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
