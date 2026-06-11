@@ -114,3 +114,59 @@ impl OrderRepository for PgOrderRepo {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod db_integration {
+    use uuid::Uuid;
+
+    use super::*;
+    use crate::domain::orders::entities::{Order, OrderStatus};
+    use crate::domain::orders::ports::OrderRepository;
+    use crate::domain::shared::types::Money;
+    use crate::infra::db::testutil::{fake_event, pool_or_skip};
+
+    #[tokio::test]
+    async fn create_then_status_change_persists_with_outbox() {
+        let Some(pool) = pool_or_skip().await else {
+            return;
+        };
+        let repo = PgOrderRepo::new(pool.clone());
+        let tenant = TenantId(format!("it-{}", Uuid::now_v7()));
+        let mut order = Order {
+            id: Uuid::now_v7(),
+            tenant_id: tenant.clone(),
+            customer_id: "cust-1".into(),
+            total_amount: Money(5000),
+            currency: "USD".into(),
+            status: OrderStatus::New,
+            created_at: Utc::now(),
+        };
+
+        // create + a status transition, each writing state + an outbox event in
+        // one transaction.
+        repo.create(&order, &fake_event(&tenant.0, "OrderCreated"))
+            .await
+            .unwrap();
+        order.status = OrderStatus::Confirmed;
+        repo.save_status(&order, &fake_event(&tenant.0, "OrderStatusChanged"))
+            .await
+            .unwrap();
+
+        let fetched = repo
+            .find_in_tenant(&tenant, &order.id)
+            .await
+            .unwrap()
+            .expect("order persisted");
+        assert_eq!(fetched.status, OrderStatus::Confirmed);
+        assert_eq!(fetched.total_amount.0, 5000);
+        assert_eq!(fetched.currency, "USD");
+
+        let (outbox,): (i64,) =
+            sqlx::query_as("SELECT count(*) FROM outbox_events WHERE tenant_id = $1")
+                .bind(&tenant.0)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(outbox, 2);
+    }
+}

@@ -140,3 +140,84 @@ impl InventoryRepository for PgInventoryRepo {
             .collect())
     }
 }
+
+#[cfg(test)]
+mod db_integration {
+    use uuid::Uuid;
+
+    use super::*;
+    use crate::domain::inventory::entities::StockAdjustment;
+    use crate::domain::inventory::ports::InventoryRepository;
+    use crate::infra::db::testutil::{fake_event, pool_or_skip};
+
+    fn adj(tenant: &TenantId, product: Uuid, delta: i64) -> StockAdjustment {
+        StockAdjustment {
+            id: Uuid::now_v7(),
+            tenant_id: tenant.clone(),
+            product_id: product,
+            warehouse_id: "main".into(),
+            delta,
+            reason: "test".into(),
+            created_at: Utc::now(),
+        }
+    }
+
+    #[tokio::test]
+    async fn adjust_accumulates_then_rolls_back_negative() {
+        let Some(pool) = pool_or_skip().await else {
+            return;
+        };
+        let repo = PgInventoryRepo::new(pool.clone());
+        let tenant = TenantId(format!("it-{}", Uuid::now_v7()));
+        let product = Uuid::now_v7();
+
+        // UPSERT accumulates: +10 then +5 -> 15.
+        assert_eq!(
+            repo.adjust(
+                &adj(&tenant, product, 10),
+                &fake_event(&tenant.0, "StockAdjusted")
+            )
+            .await
+            .unwrap(),
+            10
+        );
+        assert_eq!(
+            repo.adjust(
+                &adj(&tenant, product, 5),
+                &fake_event(&tenant.0, "StockAdjusted")
+            )
+            .await
+            .unwrap(),
+            15
+        );
+
+        // -100 would drive quantity negative -> rejected, and the WHOLE tx
+        // (level UPSERT + adjustment row + outbox) is rolled back.
+        let err = repo
+            .adjust(
+                &adj(&tenant, product, -100),
+                &fake_event(&tenant.0, "StockAdjusted"),
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(err, DomainError::Validation(_)));
+
+        // Level unchanged at 15; only the 2 successful adjustments persisted.
+        let levels = repo.list_stock(&tenant, 10, 0).await.unwrap();
+        assert_eq!(levels.len(), 1);
+        assert_eq!(levels[0].quantity, 15);
+        assert_eq!(
+            repo.list_adjustments(&tenant, 10, 0).await.unwrap().len(),
+            2
+        );
+
+        // And exactly 2 outbox events were committed (the rolled-back one is gone).
+        let (outbox,): (i64,) =
+            sqlx::query_as("SELECT count(*) FROM outbox_events WHERE tenant_id = $1")
+                .bind(&tenant.0)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(outbox, 2);
+    }
+}
