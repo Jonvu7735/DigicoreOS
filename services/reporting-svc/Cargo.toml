@@ -9,6 +9,9 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+# internal contracts: reporting CONSUMES other services' events, so it depends
+# on event-models to decode the published payloads.
+event-models = { workspace = true }
 platform-auth = { workspace = true }
 platform-outbox = { workspace = true }
 platform-observability = { workspace = true }
@@ -24,5 +27,8 @@ async-trait = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 sqlx = { workspace = true }
+# event bus (infra layer ONLY): subscribe to platform.* events.
+async-nats = { workspace = true }
+futures = { workspace = true }
 tracing = { workspace = true }
 metrics = { workspace = true }

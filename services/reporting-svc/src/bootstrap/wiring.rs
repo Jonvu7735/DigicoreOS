@@ -11,7 +11,12 @@ use sqlx::PgPool;
 
 use crate::api;
 use crate::bootstrap::config::AppConfig;
+use crate::domain::ingest::ingestor::EventIngestor;
+use crate::domain::ingest::ports::InboundEventHandler;
+use crate::domain::sales::ports::SalesProjection;
 use crate::infra;
+use crate::infra::db::sales_repo_pg::PgSalesRepo;
+use crate::infra::messaging::consumer::{connect_consumer, NatsConsumer};
 
 /// Shared application state injected into every handler.
 #[derive(Clone)]
@@ -21,6 +26,8 @@ pub struct AppState {
     pub metrics: PrometheusHandle,
     /// Verifies the RS256 access tokens issued by auth-svc.
     pub verifier: Arc<JwtVerifier>,
+    /// Sales read model (queried by the dashboard, written by the consumer).
+    pub sales: Arc<dyn SalesProjection>,
 }
 
 /// Construct infrastructure adapters and bind them to domain ports.
@@ -38,12 +45,21 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
         &config.jwt.audience,
     )?);
 
+    // Read models + the ingestor that updates them from inbound events.
+    let sales: Arc<dyn SalesProjection> = Arc::new(PgSalesRepo::new(db.clone()));
+    let ingestor: Arc<dyn InboundEventHandler> = Arc::new(EventIngestor::new(sales.clone()));
+
     // Outbox relay (DATA-STRATEGY.md §3.2): reporting publishes ReportSnapshotCreated.
-    // The inbound event consumer (subscribe -> read models) lands in the next slice.
     let outbox_repo: Arc<dyn OutboxRepository> = Arc::new(PgOutboxRepo::new(db.clone()));
     if let Some(publisher) = connect_publisher(config.nats_url.as_deref()).await {
         tokio::spawn(OutboxRelay::new(outbox_repo, publisher).run());
         tracing::info!("outbox relay started");
+    }
+
+    // Inbound consumer: drain platform.> into the read models (when NATS is up).
+    if let Some(client) = connect_consumer(config.nats_url.as_deref()).await {
+        tokio::spawn(NatsConsumer::new(client, ingestor).run());
+        tracing::info!("event consumer started");
     }
 
     Ok(AppState {
@@ -51,6 +67,7 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
         db,
         metrics,
         verifier,
+        sales,
     })
 }
 
