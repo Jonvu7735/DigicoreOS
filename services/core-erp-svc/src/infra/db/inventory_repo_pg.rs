@@ -148,6 +148,10 @@ mod db_integration {
     use super::*;
     use crate::domain::inventory::entities::StockAdjustment;
     use crate::domain::inventory::ports::InventoryRepository;
+    use crate::domain::products::entities::Product;
+    use crate::domain::products::ports::ProductRepository;
+    use crate::domain::shared::types::Money;
+    use crate::infra::db::product_repo_pg::PgProductRepo;
     use crate::infra::db::testutil::{fake_event, pool_or_skip};
 
     fn adj(tenant: &TenantId, product: Uuid, delta: i64) -> StockAdjustment {
@@ -170,6 +174,22 @@ mod db_integration {
         let repo = PgInventoryRepo::new(pool.clone());
         let tenant = TenantId(format!("it-{}", Uuid::now_v7()));
         let product = Uuid::now_v7();
+
+        // stock_levels.product_id has an FK to products(id); the service layer
+        // guarantees the product exists. Hitting the repo directly, we must seed it.
+        PgProductRepo::new(pool.clone())
+            .insert(&Product {
+                id: product,
+                tenant_id: tenant.clone(),
+                sku: format!("SKU-{product}"),
+                name: "Widget".into(),
+                price: Money(100),
+                currency: "USD".into(),
+                is_active: true,
+                created_at: Utc::now(),
+            })
+            .await
+            .unwrap();
 
         // UPSERT accumulates: +10 then +5 -> 15.
         assert_eq!(
