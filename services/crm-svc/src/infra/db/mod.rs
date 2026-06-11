@@ -1,5 +1,6 @@
 //! Postgres adapters for the `crm_svc` schema (DATA-STRATEGY.md §3.1).
 
+pub mod activity_repo_pg;
 pub mod contact_repo_pg;
 pub mod customer_repo_pg;
 pub mod deal_repo_pg;

@@ -1,5 +1,6 @@
 //! Domain layer: pure business logic. No HTTP/DB/messaging imports.
 
+pub mod activities;
 pub mod contacts;
 pub mod customers;
 pub mod deals;
