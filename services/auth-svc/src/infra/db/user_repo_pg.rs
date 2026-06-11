@@ -8,7 +8,7 @@ use uuid::Uuid;
 use crate::domain::identity::entities::User;
 use crate::domain::identity::ports::UserRepository;
 use crate::domain::shared::error::DomainResult;
-use crate::domain::shared::types::{Email, UserId};
+use crate::domain::shared::types::{Email, TenantId, UserId};
 use crate::infra::db::{map_db_err, map_write_err};
 
 /// Column tuple for `users` rows, mapped to the domain `User`.
@@ -91,5 +91,44 @@ impl UserRepository for PgUserRepo {
         .await
         .map_err(map_write_err)?;
         Ok(())
+    }
+
+    async fn list_in_tenant(
+        &self,
+        tenant: &TenantId,
+        limit: i64,
+        offset: i64,
+    ) -> DomainResult<Vec<User>> {
+        let rows: Vec<UserRow> = sqlx::query_as(
+            "SELECT DISTINCT u.id, u.email, u.display_name, u.password_hash, u.is_active, \
+             u.created_at FROM users u \
+             JOIN user_roles ur ON ur.user_id = u.id \
+             JOIN roles r ON r.id = ur.role_id \
+             WHERE r.tenant_id = $1 \
+             ORDER BY u.created_at DESC LIMIT $2 OFFSET $3",
+        )
+        .bind(&tenant.0)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_db_err)?;
+        Ok(rows.into_iter().map(to_user).collect())
+    }
+
+    async fn find_in_tenant(&self, tenant: &TenantId, id: &UserId) -> DomainResult<Option<User>> {
+        let row: Option<UserRow> = sqlx::query_as(
+            "SELECT u.id, u.email, u.display_name, u.password_hash, u.is_active, u.created_at \
+             FROM users u \
+             JOIN user_roles ur ON ur.user_id = u.id \
+             JOIN roles r ON r.id = ur.role_id \
+             WHERE r.tenant_id = $1 AND u.id = $2 LIMIT 1",
+        )
+        .bind(&tenant.0)
+        .bind(id.0)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_db_err)?;
+        Ok(row.map(to_user))
     }
 }

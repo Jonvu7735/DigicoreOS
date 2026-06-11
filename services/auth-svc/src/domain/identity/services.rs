@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use chrono::Duration;
-use event_models::auth::{AuthEvent, TenantCreated, UserRegistered};
+use event_models::auth::{AuthEvent, TenantCreated, UserRegistered, UserUpdated};
 use event_models::EventHeader;
 use uuid::Uuid;
 
@@ -30,6 +30,13 @@ pub struct LoginOutcome {
     pub refresh_token: String,
     pub user: User,
     pub tenant_id: TenantId,
+    pub roles: Vec<String>,
+}
+
+/// A user plus their role names within a tenant (admin read model).
+#[derive(Debug)]
+pub struct UserView {
+    pub user: User,
     pub roles: Vec<String>,
 }
 
@@ -238,6 +245,117 @@ impl IdentityService {
             .await
     }
 
+    /// Admin: create a user in `tenant_id` with one of the default roles, then
+    /// publish `UserRegistered`.
+    pub async fn create_user(
+        &self,
+        tenant_id: &TenantId,
+        email: Email,
+        raw_password: String,
+        display_name: String,
+        role: String,
+    ) -> DomainResult<UserView> {
+        let display_name = display_name.trim().to_string();
+        if display_name.is_empty() {
+            return Err(DomainError::Validation("display_name is required".into()));
+        }
+        if !email.0.contains('@') {
+            return Err(DomainError::Validation("a valid email is required".into()));
+        }
+        if raw_password.len() < 8 {
+            return Err(DomainError::Validation(
+                "password must be at least 8 characters".into(),
+            ));
+        }
+        if !rbac::DEFAULT_ROLES.contains(&role.as_str()) {
+            return Err(DomainError::Validation(format!("unknown role: {role}")));
+        }
+
+        let user = User {
+            id: UserId(Uuid::now_v7()),
+            email,
+            display_name,
+            password_hash: self.password_hasher.hash(&raw_password)?,
+            is_active: true,
+            created_at: self.clock.now_utc(),
+        };
+        self.provisioning
+            .provision_user_in_tenant(&user, tenant_id, &role)
+            .await?;
+        self.publish_event(self.user_registered_event(tenant_id, &user))
+            .await;
+
+        Ok(UserView {
+            user,
+            roles: vec![role],
+        })
+    }
+
+    /// Admin: list users in `tenant_id`.
+    pub async fn list_users(
+        &self,
+        tenant_id: &TenantId,
+        limit: i64,
+        offset: i64,
+    ) -> DomainResult<Vec<UserView>> {
+        let users = self
+            .user_repo
+            .list_in_tenant(tenant_id, limit, offset)
+            .await?;
+        let mut views = Vec::with_capacity(users.len());
+        for user in users {
+            let roles = self.role_names(&user.id, tenant_id).await?;
+            views.push(UserView { user, roles });
+        }
+        Ok(views)
+    }
+
+    /// Admin: fetch one user scoped to `tenant_id`.
+    pub async fn get_user(&self, tenant_id: &TenantId, user_id: &UserId) -> DomainResult<UserView> {
+        let user = self
+            .user_repo
+            .find_in_tenant(tenant_id, user_id)
+            .await?
+            .ok_or_else(|| DomainError::NotFound(format!("user {user_id}")))?;
+        let roles = self.role_names(user_id, tenant_id).await?;
+        Ok(UserView { user, roles })
+    }
+
+    /// Admin: update a user's display name and/or active flag, then publish
+    /// `UserUpdated`.
+    pub async fn update_user(
+        &self,
+        tenant_id: &TenantId,
+        user_id: &UserId,
+        display_name: Option<String>,
+        is_active: Option<bool>,
+    ) -> DomainResult<UserView> {
+        let mut user = self
+            .user_repo
+            .find_in_tenant(tenant_id, user_id)
+            .await?
+            .ok_or_else(|| DomainError::NotFound(format!("user {user_id}")))?;
+
+        if let Some(name) = display_name {
+            let name = name.trim().to_string();
+            if name.is_empty() {
+                return Err(DomainError::Validation(
+                    "display_name cannot be empty".into(),
+                ));
+            }
+            user.display_name = name;
+        }
+        if let Some(active) = is_active {
+            user.is_active = active;
+        }
+
+        self.user_repo.update(&user).await?;
+        self.publish_event(self.user_updated_event(tenant_id, &user))
+            .await;
+        let roles = self.role_names(user_id, tenant_id).await?;
+        Ok(UserView { user, roles })
+    }
+
     // --- internals -----------------------------------------------------------
 
     /// Issue an access token + a fresh stored refresh token for `(user, tenant)`.
@@ -351,6 +469,25 @@ impl IdentityService {
             is_active: user.is_active,
         })
     }
+
+    fn user_updated_event(&self, tenant_id: &TenantId, user: &User) -> AuthEvent {
+        let header = EventHeader::new(
+            Uuid::now_v7(),
+            self.clock.now_utc(),
+            tenant_id.0.clone(),
+            "user",
+            user.id.to_string(),
+            "UserUpdated",
+            1,
+        );
+        AuthEvent::UserUpdated(UserUpdated {
+            header,
+            user_id: user.id.to_string(),
+            email: user.email.0.clone(),
+            display_name: user.display_name.clone(),
+            is_active: user.is_active,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -397,6 +534,21 @@ mod tests {
         }
         async fn update(&self, _user: &User) -> DomainResult<()> {
             Ok(())
+        }
+        async fn list_in_tenant(
+            &self,
+            _tenant: &TenantId,
+            _limit: i64,
+            _offset: i64,
+        ) -> DomainResult<Vec<User>> {
+            Ok(self.users.clone())
+        }
+        async fn find_in_tenant(
+            &self,
+            _tenant: &TenantId,
+            id: &UserId,
+        ) -> DomainResult<Option<User>> {
+            Ok(self.users.iter().find(|u| u.id == *id).cloned())
         }
     }
 
@@ -527,11 +679,24 @@ mod tests {
     #[derive(Default)]
     struct FakeProvisioningRepo {
         specs: Mutex<Vec<TenantProvisioning>>,
+        users: Mutex<Vec<(User, TenantId, String)>>,
     }
     #[async_trait]
     impl ProvisioningRepository for FakeProvisioningRepo {
         async fn provision_tenant(&self, spec: &TenantProvisioning) -> DomainResult<()> {
             self.specs.lock().unwrap().push(spec.clone());
+            Ok(())
+        }
+        async fn provision_user_in_tenant(
+            &self,
+            user: &User,
+            tenant: &TenantId,
+            role_name: &str,
+        ) -> DomainResult<()> {
+            self.users
+                .lock()
+                .unwrap()
+                .push((user.clone(), tenant.clone(), role_name.to_string()));
             Ok(())
         }
     }
@@ -797,5 +962,117 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(err, DomainError::Validation(_)));
+    }
+
+    #[tokio::test]
+    async fn create_user_provisions_with_role_and_publishes_user_registered() {
+        let provisioning = Arc::new(FakeProvisioningRepo::default());
+        let events = Arc::new(CapturingEvents::default());
+        let svc = IdentityService::new(
+            Arc::new(FakeUserRepo { users: vec![] }),
+            Arc::new(FakeTenantRepo),
+            Arc::new(FakeRoleRepo {
+                tenants: vec![],
+                roles: vec![],
+            }),
+            Arc::new(FakeRefreshRepo::default()),
+            provisioning.clone(),
+            Arc::new(FakeTokenIssuer),
+            Arc::new(FakePasswordHasher { ok: true }),
+            Arc::new(FakeRefreshHasher::default()),
+            events.clone(),
+            Arc::new(StubClock),
+            1_209_600,
+        );
+
+        let view = svc
+            .create_user(
+                &TenantId("t1".into()),
+                Email("staff@acme.com".into()),
+                "supersecret".into(),
+                "Staff".into(),
+                "STAFF".into(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(view.roles, vec!["STAFF".to_string()]);
+        let provisioned = provisioning.users.lock().unwrap();
+        assert_eq!(provisioned.len(), 1);
+        assert_eq!(provisioned[0].1 .0, "t1");
+        assert_eq!(provisioned[0].2, "STAFF");
+        assert_eq!(
+            *events.published.lock().unwrap(),
+            vec!["UserRegistered".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn create_user_rejects_unknown_role() {
+        let (svc, _) = build(vec![], vec![], vec![], true);
+        let err = svc
+            .create_user(
+                &TenantId("t1".into()),
+                Email("x@y.com".into()),
+                "supersecret".into(),
+                "X".into(),
+                "ROOT".into(),
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(err, DomainError::Validation(_)));
+    }
+
+    #[tokio::test]
+    async fn update_user_changes_fields_and_publishes_user_updated() {
+        let existing = user(true);
+        let user_id = existing.id;
+        let events = Arc::new(CapturingEvents::default());
+        let svc = IdentityService::new(
+            Arc::new(FakeUserRepo {
+                users: vec![existing],
+            }),
+            Arc::new(FakeTenantRepo),
+            Arc::new(FakeRoleRepo {
+                tenants: vec![],
+                roles: vec![role("ADMIN", "t1")],
+            }),
+            Arc::new(FakeRefreshRepo::default()),
+            Arc::new(FakeProvisioningRepo::default()),
+            Arc::new(FakeTokenIssuer),
+            Arc::new(FakePasswordHasher { ok: true }),
+            Arc::new(FakeRefreshHasher::default()),
+            events.clone(),
+            Arc::new(StubClock),
+            1_209_600,
+        );
+
+        let view = svc
+            .update_user(
+                &TenantId("t1".into()),
+                &user_id,
+                Some("New Name".into()),
+                Some(false),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(view.user.display_name, "New Name");
+        assert!(!view.user.is_active);
+        assert_eq!(view.roles, vec!["ADMIN".to_string()]);
+        assert_eq!(
+            *events.published.lock().unwrap(),
+            vec!["UserUpdated".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn get_user_unknown_is_not_found() {
+        let (svc, _) = build(vec![], vec![], vec![], true);
+        let err = svc
+            .get_user(&TenantId("t1".into()), &UserId(Uuid::now_v7()))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, DomainError::NotFound(_)));
     }
 }

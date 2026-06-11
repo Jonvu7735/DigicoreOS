@@ -3,12 +3,14 @@
 //! single transaction so a new tenant never lands half-created.
 
 use async_trait::async_trait;
-
 use sqlx::PgPool;
+use uuid::Uuid;
 
+use crate::domain::identity::entities::User;
 use crate::domain::identity::ports::ProvisioningRepository;
 use crate::domain::identity::provisioning::TenantProvisioning;
 use crate::domain::shared::error::{DomainError, DomainResult};
+use crate::domain::shared::types::TenantId;
 use crate::infra::db::{map_db_err, map_write_err};
 
 pub struct PgProvisioningRepo {
@@ -89,6 +91,52 @@ impl ProvisioningRepository for PgProvisioningRepo {
         sqlx::query("INSERT INTO user_roles (user_id, role_id) VALUES ($1, $2)")
             .bind(spec.owner.id.0)
             .bind(owner_role_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_write_err)?;
+
+        tx.commit().await.map_err(map_db_err)?;
+        Ok(())
+    }
+
+    async fn provision_user_in_tenant(
+        &self,
+        user: &User,
+        tenant: &TenantId,
+        role_name: &str,
+    ) -> DomainResult<()> {
+        let mut tx = self.pool.begin().await.map_err(map_db_err)?;
+
+        let role: Option<(Uuid,)> =
+            sqlx::query_as("SELECT id FROM roles WHERE tenant_id = $1 AND name = $2")
+                .bind(&tenant.0)
+                .bind(role_name)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(map_db_err)?;
+        let role_id = role
+            .ok_or_else(|| {
+                DomainError::NotFound(format!("role {role_name} in tenant {}", tenant.0))
+            })?
+            .0;
+
+        sqlx::query(
+            "INSERT INTO users (id, email, display_name, password_hash, is_active, created_at) \
+             VALUES ($1, $2, $3, $4, $5, $6)",
+        )
+        .bind(user.id.0)
+        .bind(&user.email.0)
+        .bind(&user.display_name)
+        .bind(&user.password_hash)
+        .bind(user.is_active)
+        .bind(user.created_at)
+        .execute(&mut *tx)
+        .await
+        .map_err(map_write_err)?;
+
+        sqlx::query("INSERT INTO user_roles (user_id, role_id) VALUES ($1, $2)")
+            .bind(user.id.0)
+            .bind(role_id)
             .execute(&mut *tx)
             .await
             .map_err(map_write_err)?;
