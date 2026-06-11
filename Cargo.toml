@@ -68,12 +68,19 @@ sqlx = { version = "0.8", default-features = false, features = [
     "uuid",
     "chrono",
     "migrate",
+    "macros", # for the `sqlx::migrate!` embed macro (NOT compile-time query checks)
 ] }
 async-nats = "0.38"
 
 # --- security (infra layer ONLY) ---
 jsonwebtoken = "9"
 argon2 = "0.5"
+sha2 = "0.10"   # refresh-token hashing (store only the hash – SECURITY.md)
+hex = "0.4"
+
+# --- test-only crypto (dev-dependencies): generate ephemeral RSA keys ---
+rsa = { version = "0.9", features = ["pem"] }
+rand = "0.8"
 
 # --- transitive pins for rustc 1.82 (MSRV). Newer releases of these crates
 # --- require a newer compiler/edition; revisit when bumping the toolchain.

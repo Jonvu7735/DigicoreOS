@@ -36,17 +36,20 @@ pub struct JwtConfig {
     pub access_ttl_secs: i64,
     /// Refresh-token TTL in seconds (long-lived, e.g. 7–30 days).
     pub refresh_ttl_secs: i64,
-    /// HS256 secret for the skeleton phase.
-    /// TODO(Phase 1.3): switch to RS256 key pair per AUTH-FLOW.md §3 so the
-    /// gateway and other services verify with a public key only.
-    pub hs256_secret: String,
+    /// PEM-encoded RSA private key used to SIGN access tokens (RS256).
+    pub private_key_pem: String,
+    /// PEM-encoded RSA public key used to VERIFY access tokens. Distributed to
+    /// the gateway/other services so they verify without the private key.
+    pub public_key_pem: String,
 }
 
 impl AppConfig {
     pub fn from_env() -> anyhow::Result<Self> {
+        let env = env_or("APP_ENV", "dev");
+        let (private_key_pem, public_key_pem) = load_rsa_keys(&env)?;
         Ok(Self {
             service_name: SERVICE_NAME,
-            env: env_or("APP_ENV", "dev"),
+            env: env.clone(),
             http_port: env_or("HTTP_PORT", "8081")
                 .parse()
                 .context("HTTP_PORT must be a valid u16")?,
@@ -65,7 +68,8 @@ impl AppConfig {
                 refresh_ttl_secs: env_or("JWT_REFRESH_TTL_SECS", "1209600") // 14 days
                     .parse()
                     .context("JWT_REFRESH_TTL_SECS must be i64")?,
-                hs256_secret: env_or("JWT_HS256_SECRET", "dev-only-insecure-secret"),
+                private_key_pem,
+                public_key_pem,
             },
         })
     }
@@ -73,4 +77,45 @@ impl AppConfig {
 
 fn env_or(key: &str, default: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| default.to_string())
+}
+
+/// Resolve the RS256 key pair (PEM). Precedence:
+/// 1. Inline PEM: `JWT_PRIVATE_KEY_PEM` + `JWT_PUBLIC_KEY_PEM` (prod secrets).
+/// 2. File paths: `JWT_PRIVATE_KEY_PATH` + `JWT_PUBLIC_KEY_PATH`.
+/// 3. Dev only (`APP_ENV=dev`): default paths `./.dev/jwt_private.pem` and
+///    `./.dev/jwt_public.pem` (run `scripts/gen-dev-jwt-keys.sh` to create them).
+fn load_rsa_keys(env: &str) -> anyhow::Result<(String, String)> {
+    let inline_priv = std::env::var("JWT_PRIVATE_KEY_PEM")
+        .ok()
+        .filter(|v| !v.is_empty());
+    let inline_pub = std::env::var("JWT_PUBLIC_KEY_PEM")
+        .ok()
+        .filter(|v| !v.is_empty());
+    if let (Some(priv_pem), Some(pub_pem)) = (inline_priv, inline_pub) {
+        return Ok((priv_pem, pub_pem));
+    }
+
+    let priv_path = std::env::var("JWT_PRIVATE_KEY_PATH")
+        .ok()
+        .filter(|v| !v.is_empty());
+    let pub_path = std::env::var("JWT_PUBLIC_KEY_PATH")
+        .ok()
+        .filter(|v| !v.is_empty());
+    let (priv_path, pub_path) = match (priv_path, pub_path) {
+        (Some(a), Some(b)) => (a, b),
+        _ if env == "dev" => (
+            ".dev/jwt_private.pem".to_string(),
+            ".dev/jwt_public.pem".to_string(),
+        ),
+        _ => anyhow::bail!(
+            "RS256 keys not configured: set JWT_PRIVATE_KEY_PEM/JWT_PUBLIC_KEY_PEM \
+             or JWT_PRIVATE_KEY_PATH/JWT_PUBLIC_KEY_PATH"
+        ),
+    };
+
+    let private_key_pem = std::fs::read_to_string(&priv_path)
+        .with_context(|| format!("reading {priv_path} (dev: run scripts/gen-dev-jwt-keys.sh)"))?;
+    let public_key_pem =
+        std::fs::read_to_string(&pub_path).with_context(|| format!("reading {pub_path}"))?;
+    Ok((private_key_pem, public_key_pem))
 }
