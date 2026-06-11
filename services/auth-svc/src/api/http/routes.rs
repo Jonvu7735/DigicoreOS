@@ -56,9 +56,9 @@ pub fn router(state: AppState) -> Router {
         .layer(TraceLayer::new_for_http().make_span_with(
             move |request: &axum::http::Request<_>| {
                 // Root span `http.server` (OBSERVABILITY.md §5.4).
-                // `tenant_id`/`user_id` are recorded later by the auth
-                // middleware once the JWT is parsed (Phase 1.3).
-                tracing::info_span!(
+                // `tenant_id`/`user_id` are recorded later by the auth middleware
+                // once the JWT is parsed.
+                let span = tracing::info_span!(
                     "http.server",
                     service = service_name,
                     env = %env,
@@ -66,7 +66,16 @@ pub fn router(state: AppState) -> Router {
                     "http.route" = %request.uri().path(),
                     tenant_id = tracing::field::Empty,
                     user_id = tracing::field::Empty,
-                )
+                );
+                // Continue the upstream trace if a `traceparent` was forwarded
+                // (OBSERVABILITY.md §5.3).
+                let header = |name| request.headers().get(name).and_then(|v| v.to_str().ok());
+                platform_observability::set_parent_from_w3c(
+                    &span,
+                    header("traceparent"),
+                    header("tracestate"),
+                );
+                span
             },
         ))
         .with_state(state)

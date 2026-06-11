@@ -62,6 +62,7 @@ impl JwtTokenIssuer {
 }
 
 impl TokenIssuer for JwtTokenIssuer {
+    #[tracing::instrument(skip_all, name = "generate_token")]
     fn issue_access_token(
         &self,
         user_id: &UserId,

@@ -3,6 +3,8 @@
 
 use crate::bootstrap::config::AppConfig;
 
-pub fn init(config: &AppConfig) {
-    platform_observability::init_tracing(config.service_name, &config.env);
+/// Initialize observability; hold the returned guard for the program's lifetime
+/// so OTLP spans are flushed on shutdown.
+pub fn init(config: &AppConfig) -> platform_observability::TracingGuard {
+    platform_observability::init_tracing(config.service_name, &config.env)
 }
