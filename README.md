@@ -42,7 +42,10 @@ docker compose -f deploy/docker-compose.dev.yml up -d   # Postgres + NATS
 bash scripts/gen-dev-jwt-keys.sh                        # dev RS256 keys -> .dev/ (gitignored)
 cargo run -p auth-svc                                   # http://localhost:8081 (applies migrations)
 curl localhost:8081/api/v1/auth/health
+cargo run -p core-erp-svc                               # http://localhost:8082 (applies migrations)
+curl localhost:8082/api/v1/erp/health
 ```
 
-Auth flows (`/api/v1/auth/login|refresh|logout`) are live in Phase 1.2; sign-up
-(`/register`) and user/tenant management land in Phase 1.3.
+`auth-svc` is feature-complete (auth, RBAC, register, user/tenant admin, outbox,
+OTLP). `core-erp-svc` is bootstrapped (skeleton + ERP event contracts); its
+domain (orders, inventory, products, invoices, payments) lands incrementally.
