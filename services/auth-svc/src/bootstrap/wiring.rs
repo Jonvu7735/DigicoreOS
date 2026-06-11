@@ -13,17 +13,19 @@ use sqlx::PgPool;
 use crate::api;
 use crate::bootstrap::config::AppConfig;
 use crate::domain::identity::ports::{
-    EventPublisher, PasswordHasher, ProvisioningRepository, RefreshTokenHasher,
+    OutboxRepository, PasswordHasher, ProvisioningRepository, RefreshTokenHasher,
     RefreshTokenRepository, RoleRepository, TenantRepository, TokenIssuer, UserRepository,
 };
 use crate::domain::identity::services::IdentityService;
 use crate::domain::shared::types::Clock;
 use crate::infra;
+use crate::infra::db::outbox_repo_pg::PgOutboxRepo;
 use crate::infra::db::provisioning_repo_pg::PgProvisioningRepo;
 use crate::infra::db::refresh_token_repo_pg::PgRefreshTokenRepo;
 use crate::infra::db::role_repo_pg::PgRoleRepo;
 use crate::infra::db::tenant_repo_pg::PgTenantRepo;
 use crate::infra::db::user_repo_pg::PgUserRepo;
+use crate::infra::messaging::relay::OutboxRelay;
 use crate::infra::security::jwt::JwtTokenIssuer;
 use crate::infra::security::password::Argon2PasswordHasher;
 use crate::infra::security::refresh_token::Sha256RefreshTokenHasher;
@@ -54,8 +56,6 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
 
     // --- infra adapters bound to domain ports ---
     let clock: Arc<dyn Clock> = Arc::new(SystemClock);
-    let event_publisher: Arc<dyn EventPublisher> =
-        infra::messaging::nats::build_publisher(config.nats_url.as_deref()).await;
     let user_repo: Arc<dyn UserRepository> = Arc::new(PgUserRepo::new(db.clone()));
     let tenant_repo: Arc<dyn TenantRepository> = Arc::new(PgTenantRepo::new(db.clone()));
     let role_repo: Arc<dyn RoleRepository> = Arc::new(PgRoleRepo::new(db.clone()));
@@ -77,10 +77,20 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
         token_issuer,
         password_hasher,
         refresh_token_hasher,
-        event_publisher,
         clock,
         config.jwt.refresh_ttl_secs,
     ));
+
+    // --- outbox relay (DATA-STRATEGY.md §3.2) ---
+    // Spawn the relay only when NATS is reachable; otherwise events safely
+    // accumulate in `outbox_events` until a relay with a broker drains them.
+    let outbox_repo: Arc<dyn OutboxRepository> = Arc::new(PgOutboxRepo::new(db.clone()));
+    if let Some(publisher) =
+        infra::messaging::nats::connect_publisher(config.nats_url.as_deref()).await
+    {
+        tokio::spawn(OutboxRelay::new(outbox_repo, publisher).run());
+        tracing::info!("outbox relay started");
+    }
 
     Ok(AppState {
         config,

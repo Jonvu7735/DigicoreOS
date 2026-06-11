@@ -1,4 +1,5 @@
 //! Event-bus adapters (NATS today; Kafka/PubSub can be added behind the same
-//! domain `EventPublisher` port later).
+//! domain `RawEventPublisher` port later) + the outbox relay worker.
 
 pub mod nats;
+pub mod relay;
