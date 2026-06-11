@@ -2,6 +2,7 @@
 
 pub mod attendance_repo_pg;
 pub mod employee_repo_pg;
+pub mod leave_repo_pg;
 pub mod postgres;
 
 use crate::domain::shared::error::DomainError;

@@ -14,10 +14,12 @@ use crate::bootstrap::config::AppConfig;
 use crate::domain::attendance::services::AttendanceService;
 use crate::domain::employees::ports::EmployeeRepository;
 use crate::domain::employees::services::EmployeeService;
+use crate::domain::leave::services::LeaveService;
 use crate::domain::shared::types::Clock;
 use crate::infra;
 use crate::infra::db::attendance_repo_pg::PgAttendanceRepo;
 use crate::infra::db::employee_repo_pg::PgEmployeeRepo;
+use crate::infra::db::leave_repo_pg::PgLeaveRepo;
 use crate::infra::time::clock::SystemClock;
 
 /// Shared application state injected into every handler.
@@ -30,6 +32,7 @@ pub struct AppState {
     pub verifier: Arc<JwtVerifier>,
     pub employees: Arc<EmployeeService>,
     pub attendance: Arc<AttendanceService>,
+    pub leave: Arc<LeaveService>,
 }
 
 /// Construct infrastructure adapters and bind them to domain ports.
@@ -52,6 +55,11 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
     let employees = Arc::new(EmployeeService::new(employee_repo.clone(), clock.clone()));
     let attendance = Arc::new(AttendanceService::new(
         Arc::new(PgAttendanceRepo::new(db.clone())),
+        employee_repo.clone(),
+        clock.clone(),
+    ));
+    let leave = Arc::new(LeaveService::new(
+        Arc::new(PgLeaveRepo::new(db.clone())),
         employee_repo,
         clock,
     ));
@@ -71,6 +79,7 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
         verifier,
         employees,
         attendance,
+        leave,
     })
 }
 

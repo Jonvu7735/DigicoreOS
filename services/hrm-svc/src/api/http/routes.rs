@@ -35,8 +35,16 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/attendance/{attendance_id}",
             get(handlers::attendance::get),
-        );
-    // Further slices (leave) add their routes here.
+        )
+        // --- leave requests (RBAC-guarded, ARCHITECTURE.md §3.4) ---
+        .route(
+            "/leave",
+            get(handlers::leave::list).post(handlers::leave::request),
+        )
+        .route("/leave/{leave_id}", get(handlers::leave::get))
+        .route("/leave/{leave_id}/approve", post(handlers::leave::approve))
+        .route("/leave/{leave_id}/reject", post(handlers::leave::reject));
+    // HRM slices complete: employees, attendance, leave.
 
     Router::new()
         .nest("/api/v1/hrm", hrm_routes)

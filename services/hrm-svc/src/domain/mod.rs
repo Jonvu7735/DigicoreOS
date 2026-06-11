@@ -2,4 +2,5 @@
 
 pub mod attendance;
 pub mod employees;
+pub mod leave;
 pub mod shared;
