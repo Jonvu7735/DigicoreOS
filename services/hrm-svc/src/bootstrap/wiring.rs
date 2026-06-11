@@ -11,7 +11,11 @@ use sqlx::PgPool;
 
 use crate::api;
 use crate::bootstrap::config::AppConfig;
+use crate::domain::employees::services::EmployeeService;
+use crate::domain::shared::types::Clock;
 use crate::infra;
+use crate::infra::db::employee_repo_pg::PgEmployeeRepo;
+use crate::infra::time::clock::SystemClock;
 
 /// Shared application state injected into every handler.
 #[derive(Clone)]
@@ -21,6 +25,7 @@ pub struct AppState {
     pub metrics: PrometheusHandle,
     /// Verifies the RS256 access tokens issued by auth-svc.
     pub verifier: Arc<JwtVerifier>,
+    pub employees: Arc<EmployeeService>,
 }
 
 /// Construct infrastructure adapters and bind them to domain ports.
@@ -38,6 +43,12 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
         &config.jwt.audience,
     )?);
 
+    let clock: Arc<dyn Clock> = Arc::new(SystemClock);
+    let employees = Arc::new(EmployeeService::new(
+        Arc::new(PgEmployeeRepo::new(db.clone())),
+        clock,
+    ));
+
     // Outbox relay (DATA-STRATEGY.md §3.2): only runs when NATS is reachable;
     // otherwise events accumulate in `outbox_events` until a relay drains them.
     let outbox_repo: Arc<dyn OutboxRepository> = Arc::new(PgOutboxRepo::new(db.clone()));
@@ -51,6 +62,7 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
         db,
         metrics,
         verifier,
+        employees,
     })
 }
 
