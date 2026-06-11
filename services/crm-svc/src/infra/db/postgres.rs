@@ -22,10 +22,30 @@ pub fn connect_lazy(config: &AppConfig) -> anyhow::Result<PgPool> {
 }
 
 /// Apply pending migrations into the `crm_svc` schema at startup.
-pub async fn run_migrations(pool: &PgPool) -> anyhow::Result<()> {
+pub async fn run_migrations(pool: &PgPool, schema: &str) -> anyhow::Result<()> {
+    ensure_schema(pool, schema).await?;
     sqlx::migrate!("./migrations")
         .run(pool)
         .await
-        .context("failed to apply crm_svc migrations")?;
+        .with_context(|| format!("failed to apply {schema} migrations"))?;
+    Ok(())
+}
+
+/// Create the service schema if absent, before sqlx creates its
+/// `_sqlx_migrations` table there (the pool's `search_path` points only at this
+/// schema, so on a fresh database the schema must exist first). `schema` must be
+/// a plain SQL identifier — it is interpolated into DDL.
+async fn ensure_schema(pool: &PgPool, schema: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !schema.is_empty()
+            && schema
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_'),
+        "invalid schema name: {schema}"
+    );
+    sqlx::query(&format!("CREATE SCHEMA IF NOT EXISTS {schema}"))
+        .execute(pool)
+        .await
+        .with_context(|| format!("failed to create schema {schema}"))?;
     Ok(())
 }
