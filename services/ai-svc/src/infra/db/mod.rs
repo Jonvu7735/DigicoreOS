@@ -1,5 +1,6 @@
 //! Postgres adapters for the `ai_svc` schema (DATA-STRATEGY.md §3.1).
 
+pub mod insight_repo_pg;
 pub mod postgres;
 
 use crate::domain::shared::error::DomainError;

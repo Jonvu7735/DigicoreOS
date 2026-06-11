@@ -9,7 +9,10 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+# ai-svc CONSUMES platform events (decode) and PRODUCES AiInsightGenerated.
+event-models = { workspace = true }
 platform-auth = { workspace = true }
+platform-events = { workspace = true }
 platform-outbox = { workspace = true }
 platform-observability = { workspace = true }
 tokio = { workspace = true }
