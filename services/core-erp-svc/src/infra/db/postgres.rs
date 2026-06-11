@@ -43,9 +43,15 @@ async fn ensure_schema(pool: &PgPool, schema: &str) -> anyhow::Result<()> {
                 .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_'),
         "invalid schema name: {schema}"
     );
-    sqlx::query(&format!("CREATE SCHEMA IF NOT EXISTS {schema}"))
+    // `CREATE SCHEMA IF NOT EXISTS` can still race two concurrent creators past
+    // the existence check (e.g. several replicas booting at once), surfacing a
+    // duplicate-key violation. That outcome is benign — the schema now exists.
+    match sqlx::query(&format!("CREATE SCHEMA IF NOT EXISTS {schema}"))
         .execute(pool)
         .await
-        .with_context(|| format!("failed to create schema {schema}"))?;
-    Ok(())
+    {
+        Ok(_) => Ok(()),
+        Err(sqlx::Error::Database(e)) if e.is_unique_violation() => Ok(()),
+        Err(e) => Err(e).with_context(|| format!("failed to create schema {schema}")),
+    }
 }
