@@ -3,4 +3,5 @@
 pub mod error;
 pub mod orders;
 pub mod pagination;
+pub mod payments;
 pub mod products;

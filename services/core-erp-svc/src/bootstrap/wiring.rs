@@ -11,11 +11,14 @@ use sqlx::PgPool;
 
 use crate::api;
 use crate::bootstrap::config::AppConfig;
+use crate::domain::orders::ports::OrderRepository;
 use crate::domain::orders::services::OrderService;
+use crate::domain::payments::services::PaymentService;
 use crate::domain::products::services::ProductService;
 use crate::domain::shared::types::Clock;
 use crate::infra;
 use crate::infra::db::order_repo_pg::PgOrderRepo;
+use crate::infra::db::payment_repo_pg::PgPaymentRepo;
 use crate::infra::db::product_repo_pg::PgProductRepo;
 use crate::infra::time::clock::SystemClock;
 
@@ -29,6 +32,7 @@ pub struct AppState {
     pub verifier: Arc<JwtVerifier>,
     pub products: Arc<ProductService>,
     pub orders: Arc<OrderService>,
+    pub payments: Arc<PaymentService>,
 }
 
 /// Construct infrastructure adapters and bind them to domain ports.
@@ -51,8 +55,11 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
         Arc::new(PgProductRepo::new(db.clone())),
         clock.clone(),
     ));
-    let orders = Arc::new(OrderService::new(
-        Arc::new(PgOrderRepo::new(db.clone())),
+    let order_repo: Arc<dyn OrderRepository> = Arc::new(PgOrderRepo::new(db.clone()));
+    let orders = Arc::new(OrderService::new(order_repo.clone(), clock.clone()));
+    let payments = Arc::new(PaymentService::new(
+        Arc::new(PgPaymentRepo::new(db.clone())),
+        order_repo,
         clock,
     ));
 
@@ -71,6 +78,7 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
         verifier,
         products,
         orders,
+        payments,
     })
 }
 
