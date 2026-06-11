@@ -11,11 +11,13 @@ use sqlx::PgPool;
 
 use crate::api;
 use crate::bootstrap::config::AppConfig;
+use crate::domain::contacts::services::ContactService;
 use crate::domain::customers::ports::CustomerRepository;
 use crate::domain::customers::services::CustomerService;
 use crate::domain::deals::services::DealService;
 use crate::domain::shared::types::Clock;
 use crate::infra;
+use crate::infra::db::contact_repo_pg::PgContactRepo;
 use crate::infra::db::customer_repo_pg::PgCustomerRepo;
 use crate::infra::db::deal_repo_pg::PgDealRepo;
 use crate::infra::time::clock::SystemClock;
@@ -30,6 +32,7 @@ pub struct AppState {
     pub verifier: Arc<JwtVerifier>,
     pub customers: Arc<CustomerService>,
     pub deals: Arc<DealService>,
+    pub contacts: Arc<ContactService>,
 }
 
 /// Construct infrastructure adapters and bind them to domain ports.
@@ -52,6 +55,11 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
     let customers = Arc::new(CustomerService::new(customer_repo.clone(), clock.clone()));
     let deals = Arc::new(DealService::new(
         Arc::new(PgDealRepo::new(db.clone())),
+        customer_repo.clone(),
+        clock.clone(),
+    ));
+    let contacts = Arc::new(ContactService::new(
+        Arc::new(PgContactRepo::new(db.clone())),
         customer_repo,
         clock,
     ));
@@ -71,6 +79,7 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
         verifier,
         customers,
         deals,
+        contacts,
     })
 }
 
