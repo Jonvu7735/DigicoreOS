@@ -19,8 +19,8 @@ members = [
     "libs/event-models",
     "libs/platform-observability",
     "services/auth-svc",
+    "services/core-erp-svc",
     # Phase 3+ – uncomment as each service is bootstrapped:
-    # "services/core-erp-svc",
     # "services/crm-svc",
     # "services/hrm-svc",
     # "services/reporting-svc",

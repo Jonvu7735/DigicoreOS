@@ -1,0 +1,27 @@
+# core-erp-svc – ERP core: orders, inventory, products, invoices, payments.
+# Governing docs: SERVICE-core-erp-svc.md, ARCHITECTURE.md §3.2, API-GATEWAY.md §4, EVENTS.md §3.2.
+[package]
+name = "core-erp-svc"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+event-models = { workspace = true }
+platform-observability = { workspace = true }
+tokio = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+sqlx = { workspace = true }
+async-nats = { workspace = true }
+tracing = { workspace = true }
+metrics = { workspace = true }
