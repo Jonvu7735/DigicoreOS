@@ -1,6 +1,7 @@
 //! HTTP handlers: parse DTO -> call domain -> map result/DomainError to DTO.
 
 pub mod health;
+pub mod inventory;
 pub mod metrics;
 pub mod orders;
 pub mod payments;
