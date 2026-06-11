@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Applied in listed order: namespace -> config -> infra (postgres, nats) -> services.
+# The digicore-jwt secret is created out of band (see README.md).
+resources:
+  - 00-namespace.yaml
+  - 10-config.yaml
+  - 20-postgres.yaml
+  - 30-nats.yaml
+  - 40-services.yaml

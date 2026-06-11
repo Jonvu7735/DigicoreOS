@@ -1,0 +1,33 @@
+# Shared, non-secret configuration for every service. Per-service HTTP_PORT and
+# DATABASE_SCHEMA use the binaries' built-in defaults, so they are not set here.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: digicore-config
+  namespace: digicore
+data:
+  APP_ENV: "prod"
+  DATABASE_URL: "postgres://digicore:digicore@postgres:5432/digicore"
+  NATS_URL: "nats://nats:4222"
+  JWT_ISSUER: "auth-svc"
+  JWT_AUDIENCE: "platform-api"
+  # All services verify tokens with the public key (mounted from the digicore-jwt secret).
+  JWT_PUBLIC_KEY_PATH: "/keys/jwt_public.pem"
+---
+# Dev-grade Postgres credentials. CHANGE THESE for any real deployment (and keep
+# DATABASE_URL above in sync).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: digicore-postgres
+  namespace: digicore
+type: Opaque
+stringData:
+  POSTGRES_USER: "digicore"
+  POSTGRES_PASSWORD: "digicore"
+  POSTGRES_DB: "digicore"
+# NOTE: the RS256 keypair lives in a separate secret `digicore-jwt`, created out
+# of band so private keys are never committed (see deploy/k8s/README.md):
+#   kubectl -n digicore create secret generic digicore-jwt \
+#     --from-file=jwt_public.pem=.dev/jwt_public.pem \
+#     --from-file=jwt_private.pem=.dev/jwt_private.pem
