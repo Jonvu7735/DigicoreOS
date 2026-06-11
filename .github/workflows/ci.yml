@@ -101,6 +101,12 @@ jobs:
       # Scans the dependency graph for RustSec advisories, banned/wildcard deps,
       # and untrusted sources (deny.toml). Licenses are checked separately once
       # an allow-list is curated.
+      #
+      # `arguments: ""` overrides the action's default `--all-features`: enabling
+      # all features re-resolves optional deps (e.g. wit-bindgen 0.57.1) that
+      # require Cargo's unstable `edition2024`, which our MSRV (1.82) lacks. We
+      # analyse the graph as the project actually builds it (default features).
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check advisories bans sources
+          arguments: ""
