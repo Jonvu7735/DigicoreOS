@@ -3,7 +3,7 @@
 //! Business routes live under the gateway prefix `/api/v1/hrm/...`
 //! (ARCHITECTURE.md §3.4). `/metrics` is exposed at the root for Prometheus.
 
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::Router;
 use tower_http::trace::TraceLayer;
 
@@ -16,9 +16,18 @@ pub fn router(state: AppState) -> Router {
 
     let hrm_routes = Router::new()
         .route("/health", get(handlers::health::health))
-        .route("/ready", get(handlers::health::ready));
-    // Domain slices (employees, attendance, leave) add their RBAC-guarded
-    // routes here as they land.
+        .route("/ready", get(handlers::health::ready))
+        // --- employees (RBAC-guarded, ARCHITECTURE.md §3.4) ---
+        .route(
+            "/employees",
+            get(handlers::employees::list).post(handlers::employees::hire),
+        )
+        .route("/employees/{employee_id}", get(handlers::employees::get))
+        .route(
+            "/employees/{employee_id}/terminate",
+            post(handlers::employees::terminate),
+        );
+    // Further slices (attendance, leave) add their routes here.
 
     Router::new()
         .nest("/api/v1/hrm", hrm_routes)
