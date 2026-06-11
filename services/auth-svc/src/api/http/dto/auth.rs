@@ -42,6 +42,45 @@ pub struct UserSummary {
     pub roles: Vec<String>,
 }
 
+/// `POST /api/v1/auth/users` – admin creates a user with one default role.
+#[derive(Debug, Deserialize)]
+pub struct CreateUserRequest {
+    pub email: String,
+    pub password: String,
+    pub display_name: String,
+    /// One of OWNER | ADMIN | MANAGER | STAFF | VIEWER.
+    pub role: String,
+}
+
+/// `PATCH /api/v1/auth/users/{id}` – partial update (any subset of fields).
+#[derive(Debug, Deserialize)]
+pub struct UpdateUserRequest {
+    #[serde(default)]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    pub is_active: Option<bool>,
+}
+
+/// Pagination query (`?page=&page_size=`), 1-based pages.
+#[derive(Debug, Deserialize)]
+pub struct ListQuery {
+    #[serde(default)]
+    pub page: Option<u32>,
+    #[serde(default)]
+    pub page_size: Option<u32>,
+}
+
+impl ListQuery {
+    /// `(limit, offset)` with `page_size` clamped to 1..=100 (default 20).
+    pub fn limit_offset(&self) -> (i64, i64) {
+        let page = self.page.unwrap_or(1).max(1);
+        let page_size = self.page_size.unwrap_or(20).clamp(1, 100);
+        let limit = i64::from(page_size);
+        let offset = i64::from(page - 1) * limit;
+        (limit, offset)
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct RefreshRequest {
     pub refresh_token: String,

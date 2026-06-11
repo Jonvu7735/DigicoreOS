@@ -15,6 +15,7 @@ use uuid::Uuid;
 use crate::api::http::dto::error::ApiError;
 use crate::bootstrap::wiring::AppState;
 use crate::domain::identity::ports::AccessTokenClaims;
+use crate::domain::identity::rbac;
 use crate::domain::shared::error::DomainError;
 use crate::domain::shared::types::{TenantId, UserId};
 
@@ -30,6 +31,25 @@ impl AuthContext {
     /// True if the caller holds `role` in the active tenant.
     pub fn has_role(&self, role: &str) -> bool {
         self.roles.iter().any(|r| r == role)
+    }
+
+    /// True if any of the caller's roles grants `permission` under the default
+    /// RBAC matrix. Roles are seeded from that matrix and per-role permissions
+    /// are not yet editable, so it is authoritative for now (switch to a
+    /// DB-backed lookup once role editing exists).
+    pub fn has_permission(&self, permission: &str) -> bool {
+        self.roles
+            .iter()
+            .any(|role| rbac::permissions_for(role).contains(&permission))
+    }
+
+    /// `Ok(())` if the caller holds `permission`, otherwise a 403 `ApiError`.
+    pub fn require_permission(&self, permission: &str) -> Result<(), ApiError> {
+        if self.has_permission(permission) {
+            Ok(())
+        } else {
+            Err(DomainError::PermissionDenied(format!("missing permission: {permission}")).into())
+        }
     }
 
     /// Build from validated JWT claims (`sub` must be a UUID user id).
@@ -121,5 +141,30 @@ mod tests {
     #[test]
     fn from_claims_rejects_non_uuid_subject() {
         assert!(AuthContext::from_claims(claims("not-a-uuid")).is_err());
+    }
+
+    fn ctx(roles: &[&str]) -> AuthContext {
+        AuthContext {
+            user_id: UserId(Uuid::now_v7()),
+            tenant_id: TenantId("t1".into()),
+            roles: roles.iter().map(|r| r.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn require_permission_enforces_rbac_matrix() {
+        // OWNER can do everything.
+        assert!(ctx(&["OWNER"])
+            .require_permission("auth_user_create")
+            .is_ok());
+        // VIEWER can read but not create users.
+        let viewer = ctx(&["VIEWER"]);
+        assert!(viewer.has_permission("auth_user_read"));
+        assert!(!viewer.has_permission("auth_user_create"));
+        assert!(viewer.require_permission("auth_user_create").is_err());
+        // Multiple roles union their permissions.
+        assert!(ctx(&["VIEWER", "ADMIN"])
+            .require_permission("auth_user_create")
+            .is_ok());
     }
 }

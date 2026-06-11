@@ -22,6 +22,16 @@ pub trait UserRepository: Send + Sync {
     async fn find_by_email(&self, email: &Email) -> DomainResult<Option<User>>;
     async fn insert(&self, user: &User) -> DomainResult<()>;
     async fn update(&self, user: &User) -> DomainResult<()>;
+    /// Users holding any role in `tenant` (paginated, newest first). Backs admin
+    /// listing with tenant isolation.
+    async fn list_in_tenant(
+        &self,
+        tenant: &TenantId,
+        limit: i64,
+        offset: i64,
+    ) -> DomainResult<Vec<User>>;
+    /// A user that holds any role in `tenant` (tenant isolation for admin reads).
+    async fn find_in_tenant(&self, tenant: &TenantId, id: &UserId) -> DomainResult<Option<User>>;
 }
 
 #[async_trait]
@@ -55,6 +65,15 @@ pub trait RefreshTokenRepository: Send + Sync {
 #[async_trait]
 pub trait ProvisioningRepository: Send + Sync {
     async fn provision_tenant(&self, spec: &TenantProvisioning) -> DomainResult<()>;
+    /// Create `user` and assign them `role_name` within `tenant`, atomically.
+    /// `NotFound` if the role does not exist in the tenant; `Conflict` on a
+    /// duplicate email.
+    async fn provision_user_in_tenant(
+        &self,
+        user: &User,
+        tenant: &TenantId,
+        role_name: &str,
+    ) -> DomainResult<()>;
 }
 
 // ---------------------------------------------------------------------------

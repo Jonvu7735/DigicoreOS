@@ -31,9 +31,20 @@ pub fn router(state: AppState) -> Router {
         .route("/login", post(handlers::auth::login))
         .route("/refresh", post(handlers::auth::refresh))
         .route("/logout", post(handlers::auth::logout))
-        .route("/me", get(handlers::auth::me));
-    // TODO(Phase 1.3 cont.): admin user management  /users/... and tenant
-    // management /tenants/... (guarded by RBAC permissions, API-GATEWAY.md §3).
+        .route("/me", get(handlers::auth::me))
+        // --- admin user management (RBAC-guarded, API-GATEWAY.md §3.2) ---
+        .route(
+            "/users",
+            get(handlers::users::list).post(handlers::users::create),
+        )
+        .route(
+            "/users/{user_id}",
+            get(handlers::users::get)
+                .patch(handlers::users::update)
+                .delete(handlers::users::deactivate),
+        );
+    // TODO(Phase 1.3 cont.): tenant management /tenants/... (super-admin /
+    // auth_tenant_* guarded, API-GATEWAY.md §3.3).
 
     Router::new()
         .nest("/api/v1/auth", auth_routes)
