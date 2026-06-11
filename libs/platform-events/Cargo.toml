@@ -1,0 +1,17 @@
+# platform-events – shared inbound event-bus consumer (NATS subscriber + handler
+# port), used by every event-CONSUMING service (reporting-svc, ai-svc, …).
+# Mirror of platform-outbox on the producer side.
+[package]
+name = "platform-events"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+async-nats = { workspace = true }
+futures = { workspace = true }
+tracing = { workspace = true }
+metrics = { workspace = true }
+thiserror = { workspace = true }

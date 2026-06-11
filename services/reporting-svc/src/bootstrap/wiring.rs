@@ -9,17 +9,17 @@ use platform_observability::PrometheusHandle;
 use platform_outbox::{connect_publisher, OutboxRelay, OutboxRepository, PgOutboxRepo};
 use sqlx::PgPool;
 
+use platform_events::{connect_consumer, InboundEventHandler, NatsConsumer};
+
 use crate::api;
 use crate::bootstrap::config::AppConfig;
 use crate::domain::ingest::ingestor::EventIngestor;
-use crate::domain::ingest::ports::InboundEventHandler;
 use crate::domain::sales::ports::SalesProjection;
 use crate::domain::shared::types::Clock;
 use crate::domain::snapshots::services::SnapshotService;
 use crate::infra;
 use crate::infra::db::sales_repo_pg::PgSalesRepo;
 use crate::infra::db::snapshot_repo_pg::PgSnapshotRepo;
-use crate::infra::messaging::consumer::{connect_consumer, NatsConsumer};
 use crate::infra::time::clock::SystemClock;
 
 /// Shared application state injected into every handler.

@@ -13,6 +13,7 @@ publish.workspace = true
 # on event-models to decode the published payloads.
 event-models = { workspace = true }
 platform-auth = { workspace = true }
+platform-events = { workspace = true }
 platform-outbox = { workspace = true }
 platform-observability = { workspace = true }
 tokio = { workspace = true }
@@ -27,8 +28,6 @@ async-trait = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 sqlx = { workspace = true }
-# event bus (infra layer ONLY): subscribe to platform.* events.
-async-nats = { workspace = true }
-futures = { workspace = true }
+# event bus subscription is handled by the shared platform-events crate.
 tracing = { workspace = true }
 metrics = { workspace = true }
