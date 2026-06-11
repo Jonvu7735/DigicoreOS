@@ -1,5 +1,6 @@
 //! Postgres adapters for the `erp_core_svc` schema (DATA-STRATEGY.md §3.1).
 
+pub mod order_repo_pg;
 pub mod postgres;
 pub mod product_repo_pg;
 

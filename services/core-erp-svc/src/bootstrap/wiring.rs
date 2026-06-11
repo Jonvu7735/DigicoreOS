@@ -6,13 +6,16 @@ use std::sync::Arc;
 use axum::Router;
 use platform_auth::JwtVerifier;
 use platform_observability::PrometheusHandle;
+use platform_outbox::{OutboxRelay, OutboxRepository, PgOutboxRepo};
 use sqlx::PgPool;
 
 use crate::api;
 use crate::bootstrap::config::AppConfig;
+use crate::domain::orders::services::OrderService;
 use crate::domain::products::services::ProductService;
 use crate::domain::shared::types::Clock;
 use crate::infra;
+use crate::infra::db::order_repo_pg::PgOrderRepo;
 use crate::infra::db::product_repo_pg::PgProductRepo;
 use crate::infra::time::clock::SystemClock;
 
@@ -25,6 +28,7 @@ pub struct AppState {
     /// Verifies the RS256 access tokens issued by auth-svc.
     pub verifier: Arc<JwtVerifier>,
     pub products: Arc<ProductService>,
+    pub orders: Arc<OrderService>,
 }
 
 /// Construct infrastructure adapters and bind them to domain ports.
@@ -45,8 +49,20 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
     let clock: Arc<dyn Clock> = Arc::new(SystemClock);
     let products = Arc::new(ProductService::new(
         Arc::new(PgProductRepo::new(db.clone())),
+        clock.clone(),
+    ));
+    let orders = Arc::new(OrderService::new(
+        Arc::new(PgOrderRepo::new(db.clone())),
         clock,
     ));
+
+    // Outbox relay (DATA-STRATEGY.md §3.2): only runs when NATS is reachable;
+    // otherwise events accumulate in `outbox_events` until a relay drains them.
+    let outbox_repo: Arc<dyn OutboxRepository> = Arc::new(PgOutboxRepo::new(db.clone()));
+    if let Some(publisher) = platform_outbox::connect_publisher(config.nats_url.as_deref()).await {
+        tokio::spawn(OutboxRelay::new(outbox_repo, publisher).run());
+        tracing::info!("outbox relay started");
+    }
 
     Ok(AppState {
         config,
@@ -54,6 +70,7 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
         metrics,
         verifier,
         products,
+        orders,
     })
 }
 

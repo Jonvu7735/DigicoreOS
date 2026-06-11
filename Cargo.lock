@@ -386,6 +386,7 @@ dependencies = [
  "metrics",
  "platform-auth",
  "platform-observability",
+ "platform-outbox",
  "serde",
  "serde_json",
  "sqlx",

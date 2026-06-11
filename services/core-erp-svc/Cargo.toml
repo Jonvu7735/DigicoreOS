@@ -10,6 +10,7 @@ publish.workspace = true
 [dependencies]
 event-models = { workspace = true }
 platform-auth = { workspace = true }
+platform-outbox = { workspace = true }
 platform-observability = { workspace = true }
 tokio = { workspace = true }
 axum = { workspace = true }

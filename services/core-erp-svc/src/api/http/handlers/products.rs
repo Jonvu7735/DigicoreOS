@@ -6,8 +6,9 @@ use axum::Json;
 use uuid::Uuid;
 
 use crate::api::http::dto::error::ApiError;
+use crate::api::http::dto::pagination::ListQuery;
 use crate::api::http::dto::products::{
-    CreateProductRequest, ListQuery, ProductResponse, UpdateProductRequest,
+    CreateProductRequest, ProductResponse, UpdateProductRequest,
 };
 use crate::api::http::middleware::Auth;
 use crate::bootstrap::wiring::AppState;
