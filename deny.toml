@@ -1,0 +1,26 @@
+# Supply-chain policy for `cargo deny`. The CI `cargo-deny` job runs:
+#   cargo deny check advisories bans sources
+#
+# The `licenses` check is intentionally NOT enabled yet: it needs a curated
+# allow-list (e.g. `ring` ships a non-SPDX license-file that requires an
+# exception). Run `cargo deny check licenses` locally to build that list, then
+# add a `[licenses]` section and include it in the CI command.
+
+[advisories]
+# RustSec advisory DB (github.com/RustSec/advisory-db). Security vulnerabilities
+# fail the check — that is the point. Yanked crates only warn.
+yanked = "warn"
+ignore = [
+    # Assessed-and-accepted advisories go here as "RUSTSEC-YYYY-NNNN" with a reason.
+]
+
+[bans]
+# Duplicate transitive versions are common and low-signal -> warn, don't block.
+multiple-versions = "warn"
+# Every dependency is pinned (no "*"); a wildcard creeping in is an error.
+wildcards = "deny"
+
+[sources]
+# Only crates.io — no ad-hoc registries or git dependencies.
+unknown-registry = "deny"
+unknown-git = "deny"

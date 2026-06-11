@@ -92,3 +92,15 @@ jobs:
         env:
           TEST_DATABASE_URL: postgres://digicore:digicore@localhost:5432/digicore
         run: cargo test --workspace
+
+  supply-chain:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Scans the dependency graph for RustSec advisories, banned/wildcard deps,
+      # and untrusted sources (deny.toml). Licenses are checked separately once
+      # an allow-list is curated.
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories bans sources
