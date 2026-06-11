@@ -8,8 +8,9 @@
 /// The five default roles, most-privileged first.
 pub const DEFAULT_ROLES: [&str; 5] = ["OWNER", "ADMIN", "MANAGER", "STAFF", "VIEWER"];
 
-/// Every permission code in the catalogue (mirrors the seed in `0001_init.sql`).
-pub const ALL_PERMISSIONS: [&str; 32] = [
+/// Every permission code in the catalogue (mirrors the seed in auth-svc
+/// migrations `0001_init.sql` + `0002_rbac_contacts_activities_leave.sql`).
+pub const ALL_PERMISSIONS: [&str; 41] = [
     "auth_user_read",
     "auth_user_create",
     "auth_user_update",
@@ -33,11 +34,20 @@ pub const ALL_PERMISSIONS: [&str; 32] = [
     "crm_deal_create",
     "crm_deal_update",
     "crm_deal_move_stage",
+    "crm_contact_read",
+    "crm_contact_create",
+    "crm_contact_update",
+    "crm_activity_read",
+    "crm_activity_create",
+    "crm_activity_update",
     "hrm_employee_read",
     "hrm_employee_create",
     "hrm_employee_update",
     "hrm_attendance_read",
     "hrm_attendance_create",
+    "hrm_leave_read",
+    "hrm_leave_request",
+    "hrm_leave_approve",
     "reporting_dashboard_view",
     "reporting_report_export",
     "ai_assistant_use",
@@ -45,14 +55,17 @@ pub const ALL_PERMISSIONS: [&str; 32] = [
 ];
 
 /// Read-only business permissions shared by every role from VIEWER up.
-const BUSINESS_READS: [&str; 8] = [
+const BUSINESS_READS: [&str; 11] = [
     "erp_order_read",
     "erp_invoice_read",
     "erp_product_read",
     "crm_customer_read",
     "crm_deal_read",
+    "crm_contact_read",
+    "crm_activity_read",
     "hrm_employee_read",
     "hrm_attendance_read",
+    "hrm_leave_read",
     "reporting_dashboard_view",
 ];
 
@@ -93,9 +106,15 @@ pub fn permissions_for(role: &str) -> Vec<&'static str> {
                 "crm_deal_create",
                 "crm_deal_update",
                 "crm_deal_move_stage",
+                "crm_contact_create",
+                "crm_contact_update",
+                "crm_activity_create",
+                "crm_activity_update",
                 "hrm_employee_create",
                 "hrm_employee_update",
                 "hrm_attendance_create",
+                "hrm_leave_request",
+                "hrm_leave_approve",
                 "reporting_report_export",
                 "ai_assistant_use",
             ]);
@@ -110,7 +129,12 @@ pub fn permissions_for(role: &str) -> Vec<&'static str> {
                 "crm_deal_create",
                 "crm_deal_update",
                 "crm_deal_move_stage",
+                "crm_contact_create",
+                "crm_contact_update",
+                "crm_activity_create",
+                "crm_activity_update",
                 "hrm_attendance_create",
+                "hrm_leave_request",
                 "ai_assistant_use",
             ]);
             p
@@ -164,6 +188,31 @@ mod tests {
         assert!(manager.contains(&"erp_order_cancel"));
         assert!(!manager.contains(&"erp_invoice_cancel"));
         assert!(!manager.contains(&"auth_user_create"));
+    }
+
+    #[test]
+    fn staff_handles_contacts_activities_and_requests_leave_but_cannot_approve() {
+        let staff = permissions_for("STAFF");
+        assert!(staff.contains(&"crm_contact_create"));
+        assert!(staff.contains(&"crm_activity_update"));
+        assert!(staff.contains(&"hrm_leave_request"));
+        assert!(!staff.contains(&"hrm_leave_approve"));
+    }
+
+    #[test]
+    fn manager_approves_leave() {
+        let manager = permissions_for("MANAGER");
+        assert!(manager.contains(&"hrm_leave_approve"));
+        assert!(manager.contains(&"crm_contact_update"));
+    }
+
+    #[test]
+    fn viewer_reads_contacts_and_leave_only() {
+        let viewer = permissions_for("VIEWER");
+        assert!(viewer.contains(&"crm_contact_read"));
+        assert!(viewer.contains(&"hrm_leave_read"));
+        assert!(!viewer.contains(&"crm_contact_create"));
+        assert!(!viewer.contains(&"hrm_leave_request"));
     }
 
     #[test]
