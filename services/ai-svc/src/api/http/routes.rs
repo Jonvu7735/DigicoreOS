@@ -3,7 +3,7 @@
 //! Business routes live under the gateway prefix `/api/v1/ai/...`
 //! (ARCHITECTURE.md §3.6). `/metrics` is exposed at the root for Prometheus.
 
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::Router;
 use tower_http::trace::TraceLayer;
 
@@ -16,8 +16,11 @@ pub fn router(state: AppState) -> Router {
 
     let ai_routes = Router::new()
         .route("/health", get(handlers::health::health))
-        .route("/ready", get(handlers::health::ready));
-    // Engine slices (query, insight, assist, models) add their RBAC-guarded
+        .route("/ready", get(handlers::health::ready))
+        // --- insights (RBAC-guarded, ARCHITECTURE.md §3.6) ---
+        .route("/insight", post(handlers::insights::generate))
+        .route("/insights", get(handlers::insights::list));
+    // Further engine slices (query, assist, models) add their RBAC-guarded
     // routes here as they land.
 
     Router::new()
