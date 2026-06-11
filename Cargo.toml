@@ -24,8 +24,8 @@ members = [
     "services/core-erp-svc",
     "services/crm-svc",
     "services/hrm-svc",
+    "services/reporting-svc",
     # Phase 3+ – uncomment as each service is bootstrapped:
-    # "services/reporting-svc",
     # "services/ai-svc",
 ]
 
