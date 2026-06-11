@@ -12,13 +12,13 @@ use event_models::EventHeader;
 use uuid::Uuid;
 
 use crate::domain::identity::entities::{RefreshToken, Tenant, User};
-use crate::domain::identity::outbox::OutboxMessage;
 use crate::domain::identity::ports::{
     AccessTokenClaims, IssuedToken, PasswordHasher, ProvisioningRepository, RefreshTokenHasher,
     RefreshTokenRepository, RoleRepository, TenantRepository, TokenIssuer, UserRepository,
 };
 use crate::domain::identity::provisioning::{NewRole, TenantProvisioning};
 use crate::domain::shared::error::{DomainError, DomainResult};
+use crate::domain::shared::events::outbox_message;
 use crate::domain::shared::types::{Clock, Email, RoleId, TenantId, UserId};
 use platform_auth::rbac;
 
@@ -225,8 +225,8 @@ impl IdentityService {
 
         // Events are enqueued into the outbox in the SAME transaction as state.
         let events = vec![
-            OutboxMessage::from_auth_event(&self.tenant_created_event(&tenant))?,
-            OutboxMessage::from_auth_event(&self.user_registered_event(&tenant.id, &owner))?,
+            outbox_message(&self.tenant_created_event(&tenant))?,
+            outbox_message(&self.user_registered_event(&tenant.id, &owner))?,
         ];
         let spec = TenantProvisioning {
             tenant: tenant.clone(),
@@ -276,7 +276,7 @@ impl IdentityService {
             is_active: true,
             created_at: self.clock.now_utc(),
         };
-        let events = [OutboxMessage::from_auth_event(
+        let events = [outbox_message(
             &self.user_registered_event(tenant_id, &user),
         )?];
         self.provisioning
@@ -347,9 +347,7 @@ impl IdentityService {
             user.is_active = active;
         }
 
-        let events = [OutboxMessage::from_auth_event(
-            &self.user_updated_event(tenant_id, &user),
-        )?];
+        let events = [outbox_message(&self.user_updated_event(tenant_id, &user))?];
         self.provisioning.update_user(&user, &events).await?;
         let roles = self.role_names(user_id, tenant_id).await?;
         Ok(UserView { user, roles })
@@ -528,7 +526,6 @@ mod tests {
 
     use super::IdentityService;
     use crate::domain::identity::entities::{RefreshToken, Role, Tenant, User};
-    use crate::domain::identity::outbox::OutboxMessage;
     use crate::domain::identity::ports::{
         AccessTokenClaims, IssuedToken, PasswordHasher, ProvisioningRepository, RefreshTokenHasher,
         RefreshTokenRepository, RoleRepository, TenantRepository, TokenIssuer, UserRepository,
@@ -537,6 +534,7 @@ mod tests {
     use crate::domain::shared::error::{DomainError, DomainResult};
     use crate::domain::shared::types::{Clock, Email, RoleId, TenantId, UserId};
     use platform_auth::rbac;
+    use platform_outbox::OutboxMessage;
 
     // --- fake ports (no DB / crypto needed) ---------------------------------
 

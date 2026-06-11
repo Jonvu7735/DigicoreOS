@@ -134,7 +134,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "argon2",
- "async-nats",
  "async-trait",
  "axum 0.8.9",
  "base64ct",
@@ -148,6 +147,7 @@ dependencies = [
  "metrics",
  "platform-auth",
  "platform-observability",
+ "platform-outbox",
  "rand 0.8.6",
  "rsa",
  "serde",

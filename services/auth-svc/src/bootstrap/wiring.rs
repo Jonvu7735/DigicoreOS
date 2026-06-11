@@ -8,24 +8,23 @@ use std::sync::Arc;
 
 use axum::Router;
 use platform_observability::PrometheusHandle;
+use platform_outbox::{connect_publisher, OutboxRelay, OutboxRepository, PgOutboxRepo};
 use sqlx::PgPool;
 
 use crate::api;
 use crate::bootstrap::config::AppConfig;
 use crate::domain::identity::ports::{
-    OutboxRepository, PasswordHasher, ProvisioningRepository, RefreshTokenHasher,
-    RefreshTokenRepository, RoleRepository, TenantRepository, TokenIssuer, UserRepository,
+    PasswordHasher, ProvisioningRepository, RefreshTokenHasher, RefreshTokenRepository,
+    RoleRepository, TenantRepository, TokenIssuer, UserRepository,
 };
 use crate::domain::identity::services::IdentityService;
 use crate::domain::shared::types::Clock;
 use crate::infra;
-use crate::infra::db::outbox_repo_pg::PgOutboxRepo;
 use crate::infra::db::provisioning_repo_pg::PgProvisioningRepo;
 use crate::infra::db::refresh_token_repo_pg::PgRefreshTokenRepo;
 use crate::infra::db::role_repo_pg::PgRoleRepo;
 use crate::infra::db::tenant_repo_pg::PgTenantRepo;
 use crate::infra::db::user_repo_pg::PgUserRepo;
-use crate::infra::messaging::relay::OutboxRelay;
 use crate::infra::security::jwt::JwtTokenIssuer;
 use crate::infra::security::password::Argon2PasswordHasher;
 use crate::infra::security::refresh_token::Sha256RefreshTokenHasher;
@@ -85,9 +84,7 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
     // Spawn the relay only when NATS is reachable; otherwise events safely
     // accumulate in `outbox_events` until a relay with a broker drains them.
     let outbox_repo: Arc<dyn OutboxRepository> = Arc::new(PgOutboxRepo::new(db.clone()));
-    if let Some(publisher) =
-        infra::messaging::nats::connect_publisher(config.nats_url.as_deref()).await
-    {
+    if let Some(publisher) = connect_publisher(config.nats_url.as_deref()).await {
         tokio::spawn(OutboxRelay::new(outbox_repo, publisher).run());
         tracing::info!("outbox relay started");
     }
