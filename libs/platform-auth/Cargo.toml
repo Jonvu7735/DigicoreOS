@@ -1,0 +1,20 @@
+# platform-auth – shared auth toolkit: the RBAC matrix (single source of truth),
+# RS256 JWT verification, and the AuthContext + permission guard. Every service
+# verifies the tokens auth-svc issues and enforces the same permission matrix.
+[package]
+name = "platform-auth"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+jsonwebtoken = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+rsa = { workspace = true }
+rand = { workspace = true }

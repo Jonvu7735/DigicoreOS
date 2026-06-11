@@ -1,8 +1,9 @@
-//! Default RBAC policy applied to a freshly provisioned tenant.
+//! Default RBAC policy for the platform (SECURITY.md §4.3) — the single source
+//! of truth for the role→permission matrix, shared by every service.
 //!
-//! Roles and the role→permission matrix are a HUMAN-decided policy
-//! (SECURITY.md §8.3); this module encodes the matrix approved for the platform
-//! (SECURITY.md §4.3). `register` / `create_tenant` seed these per tenant.
+//! Roles and the matrix are a HUMAN-decided policy (SECURITY.md §8.3).
+//! `auth-svc` seeds these per tenant; all services enforce permissions against
+//! this same matrix.
 
 /// The five default roles, most-privileged first.
 pub const DEFAULT_ROLES: [&str; 5] = ["OWNER", "ADMIN", "MANAGER", "STAFF", "VIEWER"];

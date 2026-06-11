@@ -15,9 +15,9 @@ use uuid::Uuid;
 use crate::api::http::dto::error::ApiError;
 use crate::bootstrap::wiring::AppState;
 use crate::domain::identity::ports::AccessTokenClaims;
-use crate::domain::identity::rbac;
 use crate::domain::shared::error::DomainError;
 use crate::domain::shared::types::{TenantId, UserId};
+use platform_auth::rbac;
 
 /// Authenticated request context extracted from a verified JWT.
 #[derive(Debug, Clone)]
