@@ -18,9 +18,9 @@ use crate::domain::identity::ports::{
     RefreshTokenRepository, RoleRepository, TenantRepository, TokenIssuer, UserRepository,
 };
 use crate::domain::identity::provisioning::{NewRole, TenantProvisioning};
-use crate::domain::identity::rbac;
 use crate::domain::shared::error::{DomainError, DomainResult};
 use crate::domain::shared::types::{Clock, Email, RoleId, TenantId, UserId};
+use platform_auth::rbac;
 
 /// Result of a successful login (mapped to `LoginResponse` by the API layer).
 #[derive(Debug)]
@@ -534,9 +534,9 @@ mod tests {
         RefreshTokenRepository, RoleRepository, TenantRepository, TokenIssuer, UserRepository,
     };
     use crate::domain::identity::provisioning::TenantProvisioning;
-    use crate::domain::identity::rbac;
     use crate::domain::shared::error::{DomainError, DomainResult};
     use crate::domain::shared::types::{Clock, Email, RoleId, TenantId, UserId};
+    use platform_auth::rbac;
 
     // --- fake ports (no DB / crypto needed) ---------------------------------
 

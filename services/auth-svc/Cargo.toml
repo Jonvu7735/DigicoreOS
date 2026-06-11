@@ -10,6 +10,7 @@ publish.workspace = true
 [dependencies]
 # internal contracts & observability
 event-models = { workspace = true }
+platform-auth = { workspace = true }
 platform-observability = { workspace = true }
 
 # runtime & web
