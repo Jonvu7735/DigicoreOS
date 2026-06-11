@@ -5,10 +5,9 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use event_models::erp::{subjects, OrderPaid};
+use platform_events::{HandlerError, HandlerResult, InboundEventHandler};
 
-use crate::domain::ingest::ports::InboundEventHandler;
 use crate::domain::sales::ports::SalesProjection;
-use crate::domain::shared::error::{DomainError, DomainResult};
 use crate::domain::shared::types::TenantId;
 
 pub struct EventIngestor {
@@ -23,18 +22,18 @@ impl EventIngestor {
 
 #[async_trait]
 impl InboundEventHandler for EventIngestor {
-    async fn handle(&self, subject: &str, payload: &[u8]) -> DomainResult<()> {
+    async fn handle(&self, subject: &str, payload: &[u8]) -> HandlerResult<()> {
         if subject == subjects::ORDER_PAID {
-            let event: OrderPaid = serde_json::from_slice(payload).map_err(|e| {
-                DomainError::Validation(format!("malformed OrderPaid payload: {e}"))
-            })?;
+            let event: OrderPaid = serde_json::from_slice(payload)
+                .map_err(|e| HandlerError(format!("malformed OrderPaid payload: {e}")))?;
             self.sales
                 .apply_order_paid(
                     event.header.event_id,
                     &TenantId(event.header.tenant_id),
                     event.amount_paid,
                 )
-                .await?;
+                .await
+                .map_err(|e| HandlerError(e.to_string()))?;
         }
         // Other subjects are not yet projected; ignored so the consumer keeps
         // draining the bus.
@@ -53,6 +52,7 @@ mod tests {
 
     use super::*;
     use crate::domain::sales::entities::SalesSummary;
+    use crate::domain::shared::error::DomainResult;
     use crate::domain::shared::types::Money;
 
     #[derive(Default)]
@@ -138,6 +138,7 @@ mod tests {
             .handle(subjects::ORDER_PAID, b"not json")
             .await
             .unwrap_err();
-        assert!(matches!(err, DomainError::Validation(_)));
+        // platform_events::HandlerError; message names the decode failure.
+        assert!(err.to_string().contains("malformed OrderPaid"));
     }
 }

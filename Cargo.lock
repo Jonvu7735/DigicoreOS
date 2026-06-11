@@ -1781,6 +1781,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "platform-events"
+version = "0.1.0"
+dependencies = [
+ "async-nats",
+ "async-trait",
+ "futures",
+ "metrics",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
 name = "platform-observability"
 version = "0.1.0"
 dependencies = [
@@ -2032,14 +2044,13 @@ name = "reporting-svc"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-nats",
  "async-trait",
  "axum 0.8.9",
  "chrono",
  "event-models",
- "futures",
  "metrics",
  "platform-auth",
+ "platform-events",
  "platform-observability",
  "platform-outbox",
  "serde",

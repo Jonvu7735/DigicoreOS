@@ -1,15 +1,11 @@
-//! NATS consumer: subscribes to `platform.>` and feeds every message to the
-//! domain [`InboundEventHandler`] (OBSERVABILITY.md: events_consumed_total).
-//!
-//! Generic mechanics — when ai-svc also needs to consume, this can be extracted
-//! into a shared `platform-events` crate (cf. how `platform-outbox` was lifted
-//! out of the producer side).
+//! NATS consumer: subscribes to `platform.>` and feeds every message to an
+//! [`InboundEventHandler`] (OBSERVABILITY.md: events_consumed_total).
 
 use std::sync::Arc;
 
 use futures::StreamExt;
 
-use crate::domain::ingest::ports::InboundEventHandler;
+use crate::ports::InboundEventHandler;
 
 /// Wildcard subject covering every platform event.
 const PLATFORM_SUBJECT: &str = "platform.>";
@@ -55,7 +51,7 @@ impl NatsConsumer {
 }
 
 /// Connect to NATS if configured & reachable. The consumer only runs when this
-/// returns `Some`; otherwise reporting serves whatever read-model state exists.
+/// returns `Some`; otherwise the service serves whatever state already exists.
 pub async fn connect_consumer(nats_url: Option<&str>) -> Option<async_nats::Client> {
     match nats_url {
         Some(url) => match async_nats::connect(url).await {
