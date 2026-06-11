@@ -11,6 +11,7 @@ publish.workspace = true
 # internal contracts & observability
 event-models = { workspace = true }
 platform-auth = { workspace = true }
+platform-outbox = { workspace = true }
 platform-observability = { workspace = true }
 
 # runtime & web
@@ -30,9 +31,9 @@ async-trait = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 
-# data & messaging (infra layer ONLY – never imported from domain/)
+# data (infra layer ONLY – never imported from domain/). The event bus
+# (NATS) is reached through the shared `platform-outbox` crate.
 sqlx = { workspace = true }
-async-nats = { workspace = true }
 
 # security (infra layer ONLY)
 jsonwebtoken = { workspace = true }

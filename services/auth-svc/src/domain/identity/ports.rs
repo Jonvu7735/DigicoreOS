@@ -5,10 +5,9 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use uuid::Uuid;
+use platform_outbox::OutboxMessage;
 
 use crate::domain::identity::entities::{RefreshToken, Role, Tenant, User};
-use crate::domain::identity::outbox::OutboxMessage;
 use crate::domain::identity::provisioning::TenantProvisioning;
 use crate::domain::shared::error::DomainResult;
 use crate::domain::shared::types::{Email, TenantId, UserId};
@@ -82,25 +81,8 @@ pub trait ProvisioningRepository: Send + Sync {
     async fn update_user(&self, user: &User, events: &[OutboxMessage]) -> DomainResult<()>;
 }
 
-// ---------------------------------------------------------------------------
-// Outbox relay ports (DATA-STRATEGY.md §3.2)
-// ---------------------------------------------------------------------------
-
-/// Read/clear side of the outbox, used by the relay worker.
-#[async_trait]
-pub trait OutboxRepository: Send + Sync {
-    /// Oldest unpublished messages, up to `limit`.
-    async fn fetch_unpublished(&self, limit: i64) -> DomainResult<Vec<OutboxMessage>>;
-    /// Mark a message published (idempotent).
-    async fn mark_published(&self, event_id: &Uuid) -> DomainResult<()>;
-}
-
-/// Raw event-bus publisher (subject + bytes), used by the relay worker to ship
-/// outbox messages to NATS.
-#[async_trait]
-pub trait RawEventPublisher: Send + Sync {
-    async fn publish(&self, subject: &str, payload: &[u8]) -> DomainResult<()>;
-}
+// The outbox relay ports (read/clear + raw publisher) and their worker live in
+// the shared `platform-outbox` crate (DATA-STRATEGY.md §3.2).
 
 // ---------------------------------------------------------------------------
 // Security ports (implemented in infra/security/)

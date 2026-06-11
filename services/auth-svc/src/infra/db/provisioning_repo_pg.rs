@@ -3,16 +3,21 @@
 //! tenant/user and its events always commit together.
 
 use async_trait::async_trait;
+use platform_outbox::{insert_outbox, OutboxMessage};
 use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::domain::identity::entities::User;
-use crate::domain::identity::outbox::OutboxMessage;
 use crate::domain::identity::ports::ProvisioningRepository;
 use crate::domain::identity::provisioning::TenantProvisioning;
 use crate::domain::shared::error::{DomainError, DomainResult};
 use crate::domain::shared::types::TenantId;
 use crate::infra::db::{map_db_err, map_write_err};
+
+/// Map a shared-outbox storage error into this service's `DomainError`.
+fn outbox_err(e: platform_outbox::OutboxError) -> DomainError {
+    DomainError::Internal(e.to_string())
+}
 
 pub struct PgProvisioningRepo {
     pool: PgPool,
@@ -22,28 +27,6 @@ impl PgProvisioningRepo {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
-}
-
-/// Insert one outbox row on the given (transaction) connection.
-async fn insert_outbox(conn: &mut sqlx::PgConnection, msg: &OutboxMessage) -> DomainResult<()> {
-    sqlx::query(
-        "INSERT INTO outbox_events \
-         (id, occurred_at, tenant_id, aggregate_type, aggregate_id, event_type, version, subject, payload) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
-    )
-    .bind(msg.event_id)
-    .bind(msg.occurred_at)
-    .bind(&msg.tenant_id)
-    .bind(&msg.aggregate_type)
-    .bind(&msg.aggregate_id)
-    .bind(&msg.event_type)
-    .bind(msg.version)
-    .bind(&msg.subject)
-    .bind(&msg.payload)
-    .execute(conn)
-    .await
-    .map_err(map_write_err)?;
-    Ok(())
 }
 
 async fn insert_user(conn: &mut sqlx::PgConnection, user: &User) -> DomainResult<()> {
@@ -124,7 +107,7 @@ impl ProvisioningRepository for PgProvisioningRepo {
             .map_err(map_write_err)?;
 
         for event in &spec.events {
-            insert_outbox(&mut tx, event).await?;
+            insert_outbox(&mut tx, event).await.map_err(outbox_err)?;
         }
 
         tx.commit().await.map_err(map_db_err)?;
@@ -163,7 +146,7 @@ impl ProvisioningRepository for PgProvisioningRepo {
             .map_err(map_write_err)?;
 
         for event in events {
-            insert_outbox(&mut tx, event).await?;
+            insert_outbox(&mut tx, event).await.map_err(outbox_err)?;
         }
 
         tx.commit().await.map_err(map_db_err)?;
@@ -187,7 +170,7 @@ impl ProvisioningRepository for PgProvisioningRepo {
         .map_err(map_write_err)?;
 
         for event in events {
-            insert_outbox(&mut tx, event).await?;
+            insert_outbox(&mut tx, event).await.map_err(outbox_err)?;
         }
 
         tx.commit().await.map_err(map_db_err)?;

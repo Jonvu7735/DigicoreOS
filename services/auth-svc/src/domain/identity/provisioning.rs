@@ -4,8 +4,9 @@
 //! permissions, and the owner's role); `ProvisioningRepository` persists it all
 //! in ONE transaction (DATA-STRATEGY.md – integrity at the transactional layer).
 
+use platform_outbox::OutboxMessage;
+
 use crate::domain::identity::entities::{Tenant, User};
-use crate::domain::identity::outbox::OutboxMessage;
 use crate::domain::shared::types::RoleId;
 
 /// A role to create for a new tenant, with the permission codes it grants.
