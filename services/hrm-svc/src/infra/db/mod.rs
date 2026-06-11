@@ -1,5 +1,6 @@
 //! Postgres adapters for the `hrm_svc` schema (DATA-STRATEGY.md §3.1).
 
+pub mod attendance_repo_pg;
 pub mod employee_repo_pg;
 pub mod postgres;
 
