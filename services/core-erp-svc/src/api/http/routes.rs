@@ -40,8 +40,13 @@ pub fn router(state: AppState) -> Router {
             "/orders/{order_id}/complete",
             post(handlers::orders::complete),
         )
-        .route("/orders/{order_id}/cancel", post(handlers::orders::cancel));
-    // TODO(Phase 3 cont.): payments, inventory, invoices (API-GATEWAY.md §4).
+        .route("/orders/{order_id}/cancel", post(handlers::orders::cancel))
+        // --- order payments (API-GATEWAY.md §4.2) ---
+        .route(
+            "/orders/{order_id}/payments",
+            get(handlers::payments::list).post(handlers::payments::record),
+        );
+    // TODO(Phase 3 cont.): inventory, invoices (API-GATEWAY.md §4).
 
     Router::new()
         .nest("/api/v1/erp", erp_routes)

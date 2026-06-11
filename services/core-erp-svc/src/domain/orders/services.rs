@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use event_models::erp::{ErpEvent, OrderCreated, OrderStatusChanged};
 use event_models::EventHeader;
-use platform_outbox::OutboxMessage;
 use uuid::Uuid;
 
 use crate::domain::orders::entities::{Order, OrderStatus};
@@ -52,7 +51,7 @@ impl OrderService {
             status: OrderStatus::New,
             created_at: self.clock.now_utc(),
         };
-        let event = self.to_outbox(&self.created_event(&order))?;
+        let event = crate::domain::shared::events::outbox_message(&self.created_event(&order))?;
         self.repo.create(&order, &event).await?;
         Ok(order)
     }
@@ -89,7 +88,9 @@ impl OrderService {
         }
         let old_status = order.status;
         order.status = new_status;
-        let event = self.to_outbox(&self.status_changed_event(&order, old_status))?;
+        let event = crate::domain::shared::events::outbox_message(
+            &self.status_changed_event(&order, old_status),
+        )?;
         self.repo.save_status(&order, &event).await?;
         Ok(order)
     }
@@ -125,26 +126,6 @@ impl OrderService {
             1,
         )
     }
-
-    fn to_outbox(&self, event: &ErpEvent) -> DomainResult<OutboxMessage> {
-        let header = event.header();
-        let bytes = event
-            .payload_json()
-            .map_err(|e| DomainError::Internal(format!("event serialize failed: {e}")))?;
-        let payload = serde_json::from_slice(&bytes)
-            .map_err(|e| DomainError::Internal(format!("event to json failed: {e}")))?;
-        Ok(OutboxMessage {
-            event_id: header.event_id,
-            occurred_at: header.occurred_at,
-            tenant_id: header.tenant_id.clone(),
-            aggregate_type: header.aggregate_type.clone(),
-            aggregate_id: header.aggregate_id.clone(),
-            event_type: header.event_type.clone(),
-            version: header.version,
-            subject: event.subject().to_string(),
-            payload,
-        })
-    }
 }
 
 #[cfg(test)]
@@ -153,6 +134,7 @@ mod tests {
 
     use async_trait::async_trait;
     use chrono::{DateTime, Utc};
+    use platform_outbox::OutboxMessage;
 
     use super::*;
 
