@@ -51,6 +51,27 @@ impl From<DomainError> for ApiError {
     }
 }
 
+impl From<platform_auth::AuthError> for ApiError {
+    fn from(err: platform_auth::AuthError) -> Self {
+        let (status, error_code, message) = match err {
+            platform_auth::AuthError::Unauthorized(m) => {
+                (StatusCode::UNAUTHORIZED, "UNAUTHORIZED", m)
+            }
+            platform_auth::AuthError::PermissionDenied(m) => {
+                (StatusCode::FORBIDDEN, "PERMISSION_DENIED", m)
+            }
+        };
+        Self {
+            status,
+            body: ApiErrorBody {
+                error_code: error_code.into(),
+                message,
+                details: None,
+            },
+        }
+    }
+}
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         (self.status, Json(self.body)).into_response()

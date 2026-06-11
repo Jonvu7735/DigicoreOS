@@ -16,9 +16,17 @@ pub fn router(state: AppState) -> Router {
 
     let erp_routes = Router::new()
         .route("/health", get(handlers::health::health))
-        .route("/ready", get(handlers::health::ready));
-    // TODO(Phase 3): orders, payments, inventory, products, invoices
-    // (API-GATEWAY.md §4) — added as each domain slice lands.
+        .route("/ready", get(handlers::health::ready))
+        // --- products (RBAC-guarded, API-GATEWAY.md §4.4) ---
+        .route(
+            "/products",
+            get(handlers::products::list).post(handlers::products::create),
+        )
+        .route(
+            "/products/{product_id}",
+            get(handlers::products::get).patch(handlers::products::update),
+        );
+    // TODO(Phase 3 cont.): orders, payments, inventory, invoices (API-GATEWAY.md §4).
 
     Router::new()
         .nest("/api/v1/erp", erp_routes)
