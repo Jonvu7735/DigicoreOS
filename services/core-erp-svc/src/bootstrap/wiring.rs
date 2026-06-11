@@ -49,7 +49,7 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
     let metrics = platform_observability::install_prometheus()?;
 
     let db = infra::db::postgres::connect_lazy(&config)?;
-    infra::db::postgres::run_migrations(&db).await?;
+    infra::db::postgres::run_migrations(&db, &config.database_schema).await?;
 
     let verifier = Arc::new(JwtVerifier::from_public_key_pem(
         &config.jwt.public_key_pem,

@@ -121,7 +121,7 @@ mod db_integration {
             .connect_with(opts)
             .await
             .expect("connect to test db");
-        crate::infra::db::postgres::run_migrations(&pool)
+        crate::infra::db::postgres::run_migrations(&pool, "reporting_svc")
             .await
             .expect("apply migrations");
         Some(pool)

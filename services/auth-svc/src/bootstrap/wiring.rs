@@ -51,7 +51,7 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
     let db = infra::db::postgres::connect_lazy(&config)?;
     // Apply schema migrations at startup (fatal if the DB is unreachable: the
     // service cannot serve auth without its schema).
-    infra::db::postgres::run_migrations(&db).await?;
+    infra::db::postgres::run_migrations(&db, &config.database_schema).await?;
 
     // --- infra adapters bound to domain ports ---
     let clock: Arc<dyn Clock> = Arc::new(SystemClock);
