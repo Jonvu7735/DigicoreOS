@@ -1,0 +1,23 @@
+# platform-outbox – transactional outbox mechanics shared by services
+# (DATA-STRATEGY.md §3.2): the OutboxMessage value, the write helper, the
+# OutboxRepository/RawEventPublisher ports, a Postgres repo, a NATS publisher,
+# and the relay worker. Each service owns its own `outbox_events` table (in its
+# schema) and builds OutboxMessages from its own event enum.
+[package]
+name = "platform-outbox"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+metrics = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+async-nats = { workspace = true }
+tokio = { workspace = true }

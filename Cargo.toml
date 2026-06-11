@@ -18,6 +18,7 @@ resolver = "2"
 members = [
     "libs/event-models",
     "libs/platform-auth",
+    "libs/platform-outbox",
     "libs/platform-observability",
     "services/auth-svc",
     "services/core-erp-svc",
@@ -38,6 +39,7 @@ publish = false
 # --- internal shared crates ---
 event-models = { path = "libs/event-models" }
 platform-auth = { path = "libs/platform-auth" }
+platform-outbox = { path = "libs/platform-outbox" }
 platform-observability = { path = "libs/platform-observability" }
 
 # --- async runtime & web ---
