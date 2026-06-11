@@ -456,6 +456,7 @@ dependencies = [
  "async-trait",
  "axum 0.8.9",
  "chrono",
+ "event-models",
  "metrics",
  "platform-auth",
  "platform-observability",
