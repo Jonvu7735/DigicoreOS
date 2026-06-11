@@ -1,0 +1,18 @@
+# Rust / Cargo build output
+/target/
+**/*.rs.bk
+
+# These should stay tracked (do NOT ignore):
+#   Cargo.lock      – pinned for reproducible builds (workspace with binaries)
+#   rust-toolchain.toml
+
+# Local environment / secrets (SECURITY.md: never commit secrets)
+.env
+.env.*
+*.local
+
+# Editor / OS noise
+/.idea/
+/.vscode/
+*.swp
+.DS_Store
