@@ -26,14 +26,14 @@ pub fn router(state: AppState) -> Router {
         // --- liveness / readiness ---
         .route("/health", get(handlers::health::health))
         .route("/ready", get(handlers::health::ready))
-        // --- authentication (AUTH-FLOW.md) ---
+        // --- sign-up (public) + authentication (AUTH-FLOW.md, API-GATEWAY.md §3) ---
+        .route("/register", post(handlers::auth::register))
         .route("/login", post(handlers::auth::login))
         .route("/refresh", post(handlers::auth::refresh))
         .route("/logout", post(handlers::auth::logout))
         .route("/me", get(handlers::auth::me));
-    // TODO(Phase 1.3): user management  GET/POST/PATCH/DELETE /users/...
-    // TODO(Phase 1.3): tenant management GET/POST/PATCH       /tenants/...
-    // (route list per API-GATEWAY.md group `/api/v1/auth`)
+    // TODO(Phase 1.3 cont.): admin user management  /users/... and tenant
+    // management /tenants/... (guarded by RBAC permissions, API-GATEWAY.md §3).
 
     Router::new()
         .nest("/api/v1/auth", auth_routes)

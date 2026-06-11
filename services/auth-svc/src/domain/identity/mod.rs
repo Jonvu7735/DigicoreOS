@@ -5,4 +5,6 @@
 
 pub mod entities;
 pub mod ports;
+pub mod provisioning;
+pub mod rbac;
 pub mod services;

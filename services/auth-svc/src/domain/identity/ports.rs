@@ -8,6 +8,7 @@ use chrono::{DateTime, Utc};
 use event_models::auth::AuthEvent;
 
 use crate::domain::identity::entities::{RefreshToken, Role, Tenant, User};
+use crate::domain::identity::provisioning::TenantProvisioning;
 use crate::domain::shared::error::DomainResult;
 use crate::domain::shared::types::{Email, TenantId, UserId};
 
@@ -46,6 +47,14 @@ pub trait RefreshTokenRepository: Send + Sync {
     /// Look up a non-expired, non-revoked token by its hash.
     async fn find_valid_by_hash(&self, token_hash: &str) -> DomainResult<Option<RefreshToken>>;
     async fn revoke(&self, token_hash: &str) -> DomainResult<()>;
+}
+
+/// Atomic tenant provisioning: persists the tenant, its owner, default roles +
+/// `role_permissions`, and the owner's role assignment in ONE transaction.
+/// A duplicate owner email surfaces as `DomainError::Conflict`.
+#[async_trait]
+pub trait ProvisioningRepository: Send + Sync {
+    async fn provision_tenant(&self, spec: &TenantProvisioning) -> DomainResult<()>;
 }
 
 // ---------------------------------------------------------------------------
