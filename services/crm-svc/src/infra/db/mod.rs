@@ -1,6 +1,7 @@
 //! Postgres adapters for the `crm_svc` schema (DATA-STRATEGY.md §3.1).
 
 pub mod customer_repo_pg;
+pub mod deal_repo_pg;
 pub mod postgres;
 
 use crate::domain::shared::error::DomainError;

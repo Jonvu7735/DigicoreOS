@@ -11,10 +11,13 @@ use sqlx::PgPool;
 
 use crate::api;
 use crate::bootstrap::config::AppConfig;
+use crate::domain::customers::ports::CustomerRepository;
 use crate::domain::customers::services::CustomerService;
+use crate::domain::deals::services::DealService;
 use crate::domain::shared::types::Clock;
 use crate::infra;
 use crate::infra::db::customer_repo_pg::PgCustomerRepo;
+use crate::infra::db::deal_repo_pg::PgDealRepo;
 use crate::infra::time::clock::SystemClock;
 
 /// Shared application state injected into every handler.
@@ -26,6 +29,7 @@ pub struct AppState {
     /// Verifies the RS256 access tokens issued by auth-svc.
     pub verifier: Arc<JwtVerifier>,
     pub customers: Arc<CustomerService>,
+    pub deals: Arc<DealService>,
 }
 
 /// Construct infrastructure adapters and bind them to domain ports.
@@ -44,8 +48,11 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
     )?);
 
     let clock: Arc<dyn Clock> = Arc::new(SystemClock);
-    let customers = Arc::new(CustomerService::new(
-        Arc::new(PgCustomerRepo::new(db.clone())),
+    let customer_repo: Arc<dyn CustomerRepository> = Arc::new(PgCustomerRepo::new(db.clone()));
+    let customers = Arc::new(CustomerService::new(customer_repo.clone(), clock.clone()));
+    let deals = Arc::new(DealService::new(
+        Arc::new(PgDealRepo::new(db.clone())),
+        customer_repo,
         clock,
     ));
 
@@ -63,6 +70,7 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
         metrics,
         verifier,
         customers,
+        deals,
     })
 }
 
