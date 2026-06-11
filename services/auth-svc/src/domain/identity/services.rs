@@ -7,15 +7,20 @@
 use std::sync::Arc;
 
 use chrono::Duration;
+use event_models::auth::{AuthEvent, TenantCreated, UserRegistered};
+use event_models::EventHeader;
 use uuid::Uuid;
 
-use crate::domain::identity::entities::{RefreshToken, User};
+use crate::domain::identity::entities::{RefreshToken, Tenant, User};
 use crate::domain::identity::ports::{
-    AccessTokenClaims, EventPublisher, IssuedToken, PasswordHasher, RefreshTokenHasher,
-    RefreshTokenRepository, RoleRepository, TenantRepository, TokenIssuer, UserRepository,
+    AccessTokenClaims, EventPublisher, IssuedToken, PasswordHasher, ProvisioningRepository,
+    RefreshTokenHasher, RefreshTokenRepository, RoleRepository, TenantRepository, TokenIssuer,
+    UserRepository,
 };
+use crate::domain::identity::provisioning::{NewRole, TenantProvisioning};
+use crate::domain::identity::rbac;
 use crate::domain::shared::error::{DomainError, DomainResult};
-use crate::domain::shared::types::{Clock, Email, TenantId, UserId};
+use crate::domain::shared::types::{Clock, Email, RoleId, TenantId, UserId};
 
 /// Result of a successful login (mapped to `LoginResponse` by the API layer).
 #[derive(Debug)]
@@ -33,6 +38,7 @@ pub struct IdentityService {
     tenant_repo: Arc<dyn TenantRepository>,
     role_repo: Arc<dyn RoleRepository>,
     refresh_token_repo: Arc<dyn RefreshTokenRepository>,
+    provisioning: Arc<dyn ProvisioningRepository>,
     token_issuer: Arc<dyn TokenIssuer>,
     password_hasher: Arc<dyn PasswordHasher>,
     refresh_token_hasher: Arc<dyn RefreshTokenHasher>,
@@ -48,6 +54,7 @@ impl IdentityService {
         tenant_repo: Arc<dyn TenantRepository>,
         role_repo: Arc<dyn RoleRepository>,
         refresh_token_repo: Arc<dyn RefreshTokenRepository>,
+        provisioning: Arc<dyn ProvisioningRepository>,
         token_issuer: Arc<dyn TokenIssuer>,
         password_hasher: Arc<dyn PasswordHasher>,
         refresh_token_hasher: Arc<dyn RefreshTokenHasher>,
@@ -60,6 +67,7 @@ impl IdentityService {
             tenant_repo,
             role_repo,
             refresh_token_repo,
+            provisioning,
             token_issuer,
             password_hasher,
             refresh_token_hasher,
@@ -151,6 +159,85 @@ impl IdentityService {
         self.token_issuer.validate_access_token(token)
     }
 
+    /// Self-serve sign-up (API-GATEWAY.md §2.2): create a new tenant with its
+    /// owner user and the default RBAC roles atomically, publish
+    /// `TenantCreated` + `UserRegistered`, then return a session for the owner
+    /// (sign-up doubles as the owner's first login).
+    pub async fn register(
+        &self,
+        tenant_name: String,
+        plan: Option<String>,
+        email: Email,
+        raw_password: String,
+        display_name: String,
+    ) -> DomainResult<LoginOutcome> {
+        let tenant_name = tenant_name.trim().to_string();
+        let display_name = display_name.trim().to_string();
+        if tenant_name.is_empty() {
+            return Err(DomainError::Validation("tenant_name is required".into()));
+        }
+        if display_name.is_empty() {
+            return Err(DomainError::Validation("display_name is required".into()));
+        }
+        if !email.0.contains('@') {
+            return Err(DomainError::Validation("a valid email is required".into()));
+        }
+        if raw_password.len() < 8 {
+            return Err(DomainError::Validation(
+                "password must be at least 8 characters".into(),
+            ));
+        }
+
+        let now = self.clock.now_utc();
+        let password_hash = self.password_hasher.hash(&raw_password)?;
+        let tenant = Tenant {
+            id: TenantId(Uuid::now_v7().to_string()),
+            name: tenant_name,
+            plan: plan.unwrap_or_else(|| "free".to_string()),
+            is_active: true,
+            created_at: now,
+        };
+        let owner = User {
+            id: UserId(Uuid::now_v7()),
+            email,
+            display_name,
+            password_hash,
+            is_active: true,
+            created_at: now,
+        };
+
+        let roles = rbac::DEFAULT_ROLES
+            .iter()
+            .map(|name| NewRole {
+                id: RoleId(Uuid::now_v7()),
+                name: (*name).to_string(),
+                description: Some(rbac::role_description(name).to_string()),
+                permission_codes: rbac::permissions_for(name)
+                    .into_iter()
+                    .map(String::from)
+                    .collect(),
+            })
+            .collect();
+
+        let spec = TenantProvisioning {
+            tenant: tenant.clone(),
+            owner: owner.clone(),
+            roles,
+            owner_role: "OWNER".to_string(),
+        };
+        self.provisioning.provision_tenant(&spec).await?;
+
+        // Post-commit events (Phase 1.5 moves these into the provisioning
+        // transaction via the outbox for at-least-once delivery).
+        self.publish_event(self.tenant_created_event(&tenant)).await;
+        self.publish_event(self.user_registered_event(&tenant.id, &owner))
+            .await;
+
+        let tenant_id = tenant.id;
+        self.issue_session(owner, tenant_id, vec!["OWNER".to_string()])
+            .await
+    }
+
     // --- internals -----------------------------------------------------------
 
     /// Issue an access token + a fresh stored refresh token for `(user, tenant)`.
@@ -222,13 +309,47 @@ impl IdentityService {
         }
     }
 
-    // TODO(Phase 1.3): register_user / create_tenant use-cases. Both must, after
-    // the DB commit, publish `UserRegistered` / `TenantCreated` via the
-    // `EventPublisher` port (subjects in event-models::auth::subjects). The
-    // `events`, `tenant_repo` fields are wired here ready for that work.
-    #[allow(dead_code)]
-    fn _phase_1_3_placeholder(&self) -> (&Arc<dyn EventPublisher>, &Arc<dyn TenantRepository>) {
-        (&self.events, &self.tenant_repo)
+    /// Best-effort publish (Phase 1.3). The infra publisher logs the send/drop;
+    /// at-least-once reliability arrives with the outbox in Phase 1.5.
+    async fn publish_event(&self, event: AuthEvent) {
+        let _ = self.events.publish(event).await;
+    }
+
+    fn tenant_created_event(&self, tenant: &Tenant) -> AuthEvent {
+        let header = EventHeader::new(
+            Uuid::now_v7(),
+            self.clock.now_utc(),
+            tenant.id.0.clone(),
+            "tenant",
+            tenant.id.0.clone(),
+            "TenantCreated",
+            1,
+        );
+        AuthEvent::TenantCreated(TenantCreated {
+            header,
+            tenant_id: tenant.id.0.clone(),
+            tenant_name: tenant.name.clone(),
+            plan: tenant.plan.clone(),
+        })
+    }
+
+    fn user_registered_event(&self, tenant_id: &TenantId, user: &User) -> AuthEvent {
+        let header = EventHeader::new(
+            Uuid::now_v7(),
+            self.clock.now_utc(),
+            tenant_id.0.clone(),
+            "user",
+            user.id.to_string(),
+            "UserRegistered",
+            1,
+        );
+        AuthEvent::UserRegistered(UserRegistered {
+            header,
+            user_id: user.id.to_string(),
+            email: user.email.0.clone(),
+            display_name: user.display_name.clone(),
+            is_active: user.is_active,
+        })
     }
 }
 
@@ -245,9 +366,12 @@ mod tests {
     use super::IdentityService;
     use crate::domain::identity::entities::{RefreshToken, Role, Tenant, User};
     use crate::domain::identity::ports::{
-        AccessTokenClaims, EventPublisher, IssuedToken, PasswordHasher, RefreshTokenHasher,
-        RefreshTokenRepository, RoleRepository, TenantRepository, TokenIssuer, UserRepository,
+        AccessTokenClaims, EventPublisher, IssuedToken, PasswordHasher, ProvisioningRepository,
+        RefreshTokenHasher, RefreshTokenRepository, RoleRepository, TenantRepository, TokenIssuer,
+        UserRepository,
     };
+    use crate::domain::identity::provisioning::TenantProvisioning;
+    use crate::domain::identity::rbac;
     use crate::domain::shared::error::{DomainError, DomainResult};
     use crate::domain::shared::types::{Clock, Email, RoleId, TenantId, UserId};
 
@@ -383,6 +507,35 @@ mod tests {
         }
     }
 
+    /// Captures published event type names so tests can assert on them.
+    #[derive(Default)]
+    struct CapturingEvents {
+        published: Mutex<Vec<String>>,
+    }
+    #[async_trait]
+    impl EventPublisher for CapturingEvents {
+        async fn publish(&self, event: AuthEvent) -> DomainResult<()> {
+            self.published
+                .lock()
+                .unwrap()
+                .push(event.event_type().to_string());
+            Ok(())
+        }
+    }
+
+    /// Captures the provisioning spec passed to it.
+    #[derive(Default)]
+    struct FakeProvisioningRepo {
+        specs: Mutex<Vec<TenantProvisioning>>,
+    }
+    #[async_trait]
+    impl ProvisioningRepository for FakeProvisioningRepo {
+        async fn provision_tenant(&self, spec: &TenantProvisioning) -> DomainResult<()> {
+            self.specs.lock().unwrap().push(spec.clone());
+            Ok(())
+        }
+    }
+
     struct StubClock;
     impl Clock for StubClock {
         fn now_utc(&self) -> DateTime<Utc> {
@@ -427,6 +580,7 @@ mod tests {
                 roles,
             }),
             refresh.clone(),
+            Arc::new(FakeProvisioningRepo::default()),
             Arc::new(FakeTokenIssuer),
             Arc::new(FakePasswordHasher { ok: pw_ok }),
             Arc::new(FakeRefreshHasher::default()),
@@ -552,5 +706,96 @@ mod tests {
             .lock()
             .unwrap()
             .contains(&"h:raw-0".to_string()));
+    }
+
+    #[tokio::test]
+    async fn register_provisions_tenant_owner_and_publishes_events() {
+        let provisioning = Arc::new(FakeProvisioningRepo::default());
+        let events = Arc::new(CapturingEvents::default());
+        let refresh = Arc::new(FakeRefreshRepo::default());
+        let svc = IdentityService::new(
+            Arc::new(FakeUserRepo { users: vec![] }),
+            Arc::new(FakeTenantRepo),
+            Arc::new(FakeRoleRepo {
+                tenants: vec![],
+                roles: vec![],
+            }),
+            refresh,
+            provisioning.clone(),
+            Arc::new(FakeTokenIssuer),
+            Arc::new(FakePasswordHasher { ok: true }),
+            Arc::new(FakeRefreshHasher::default()),
+            events.clone(),
+            Arc::new(StubClock),
+            1_209_600,
+        );
+
+        let out = svc
+            .register(
+                "Acme".into(),
+                None,
+                Email("owner@acme.com".into()),
+                "supersecret".into(),
+                "Owner".into(),
+            )
+            .await
+            .unwrap();
+
+        // Sign-up returns a session for the owner with the OWNER role.
+        assert_eq!(out.roles, vec!["OWNER".to_string()]);
+        assert!(out.access.token.contains("OWNER"));
+
+        // One provisioning spec: 5 roles, owner = OWNER, OWNER has full matrix.
+        let specs = provisioning.specs.lock().unwrap();
+        assert_eq!(specs.len(), 1);
+        let spec = &specs[0];
+        assert_eq!(spec.owner_role, "OWNER");
+        assert_eq!(spec.roles.len(), 5);
+        assert_eq!(spec.tenant.name, "Acme");
+        assert_eq!(spec.tenant.plan, "free");
+        assert_eq!(spec.owner.email.0, "owner@acme.com");
+        let owner_role = spec.roles.iter().find(|r| r.name == "OWNER").unwrap();
+        assert_eq!(
+            owner_role.permission_codes.len(),
+            rbac::ALL_PERMISSIONS.len()
+        );
+
+        // Events published after commit: TenantCreated then UserRegistered.
+        assert_eq!(
+            *events.published.lock().unwrap(),
+            vec!["TenantCreated".to_string(), "UserRegistered".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn register_rejects_short_password() {
+        let (svc, _) = build(vec![], vec![], vec![], true);
+        let err = svc
+            .register(
+                "Acme".into(),
+                None,
+                Email("o@a.com".into()),
+                "short".into(),
+                "Owner".into(),
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(err, DomainError::Validation(_)));
+    }
+
+    #[tokio::test]
+    async fn register_rejects_invalid_email() {
+        let (svc, _) = build(vec![], vec![], vec![], true);
+        let err = svc
+            .register(
+                "Acme".into(),
+                None,
+                Email("not-an-email".into()),
+                "supersecret".into(),
+                "Owner".into(),
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(err, DomainError::Validation(_)));
     }
 }

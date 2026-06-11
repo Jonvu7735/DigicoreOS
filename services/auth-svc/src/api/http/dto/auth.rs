@@ -11,6 +11,19 @@ pub struct LoginRequest {
     pub tenant_id: Option<String>,
 }
 
+/// Self-serve sign-up (`POST /api/v1/auth/register`): provisions a new tenant
+/// and its owner user in one step (API-GATEWAY.md §2.2).
+#[derive(Debug, Deserialize)]
+pub struct RegisterRequest {
+    pub tenant_name: String,
+    /// Subscription plan; defaults to `free` when omitted.
+    #[serde(default)]
+    pub plan: Option<String>,
+    pub email: String,
+    pub password: String,
+    pub display_name: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct LoginResponse {
     pub access_token: String,

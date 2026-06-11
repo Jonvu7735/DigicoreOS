@@ -13,12 +13,13 @@ use sqlx::PgPool;
 use crate::api;
 use crate::bootstrap::config::AppConfig;
 use crate::domain::identity::ports::{
-    EventPublisher, PasswordHasher, RefreshTokenHasher, RefreshTokenRepository, RoleRepository,
-    TenantRepository, TokenIssuer, UserRepository,
+    EventPublisher, PasswordHasher, ProvisioningRepository, RefreshTokenHasher,
+    RefreshTokenRepository, RoleRepository, TenantRepository, TokenIssuer, UserRepository,
 };
 use crate::domain::identity::services::IdentityService;
 use crate::domain::shared::types::Clock;
 use crate::infra;
+use crate::infra::db::provisioning_repo_pg::PgProvisioningRepo;
 use crate::infra::db::refresh_token_repo_pg::PgRefreshTokenRepo;
 use crate::infra::db::role_repo_pg::PgRoleRepo;
 use crate::infra::db::tenant_repo_pg::PgTenantRepo;
@@ -60,6 +61,8 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
     let role_repo: Arc<dyn RoleRepository> = Arc::new(PgRoleRepo::new(db.clone()));
     let refresh_token_repo: Arc<dyn RefreshTokenRepository> =
         Arc::new(PgRefreshTokenRepo::new(db.clone()));
+    let provisioning: Arc<dyn ProvisioningRepository> =
+        Arc::new(PgProvisioningRepo::new(db.clone()));
     let token_issuer: Arc<dyn TokenIssuer> = Arc::new(JwtTokenIssuer::from_config(&config.jwt)?);
     let password_hasher: Arc<dyn PasswordHasher> = Arc::new(Argon2PasswordHasher);
     let refresh_token_hasher: Arc<dyn RefreshTokenHasher> = Arc::new(Sha256RefreshTokenHasher);
@@ -70,6 +73,7 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
         tenant_repo,
         role_repo,
         refresh_token_repo,
+        provisioning,
         token_issuer,
         password_hasher,
         refresh_token_hasher,
