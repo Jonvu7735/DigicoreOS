@@ -67,6 +67,7 @@ sqlx = { version = "0.8", default-features = false, features = [
     "postgres",
     "uuid",
     "chrono",
+    "json", # JSONB <-> serde_json::Value for the outbox payload
     "migrate",
     "macros", # for the `sqlx::migrate!` embed macro (NOT compile-time query checks)
 ] }

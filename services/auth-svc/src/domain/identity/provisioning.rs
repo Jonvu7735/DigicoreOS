@@ -5,6 +5,7 @@
 //! in ONE transaction (DATA-STRATEGY.md – integrity at the transactional layer).
 
 use crate::domain::identity::entities::{Tenant, User};
+use crate::domain::identity::outbox::OutboxMessage;
 use crate::domain::shared::types::RoleId;
 
 /// A role to create for a new tenant, with the permission codes it grants.
@@ -24,4 +25,6 @@ pub struct TenantProvisioning {
     pub roles: Vec<NewRole>,
     /// Name of the role (within `roles`) assigned to the owner user.
     pub owner_role: String,
+    /// Events enqueued into the outbox in the same transaction.
+    pub events: Vec<OutboxMessage>,
 }

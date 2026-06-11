@@ -12,10 +12,10 @@ use event_models::EventHeader;
 use uuid::Uuid;
 
 use crate::domain::identity::entities::{RefreshToken, Tenant, User};
+use crate::domain::identity::outbox::OutboxMessage;
 use crate::domain::identity::ports::{
-    AccessTokenClaims, EventPublisher, IssuedToken, PasswordHasher, ProvisioningRepository,
-    RefreshTokenHasher, RefreshTokenRepository, RoleRepository, TenantRepository, TokenIssuer,
-    UserRepository,
+    AccessTokenClaims, IssuedToken, PasswordHasher, ProvisioningRepository, RefreshTokenHasher,
+    RefreshTokenRepository, RoleRepository, TenantRepository, TokenIssuer, UserRepository,
 };
 use crate::domain::identity::provisioning::{NewRole, TenantProvisioning};
 use crate::domain::identity::rbac;
@@ -49,7 +49,6 @@ pub struct IdentityService {
     token_issuer: Arc<dyn TokenIssuer>,
     password_hasher: Arc<dyn PasswordHasher>,
     refresh_token_hasher: Arc<dyn RefreshTokenHasher>,
-    events: Arc<dyn EventPublisher>,
     clock: Arc<dyn Clock>,
     refresh_ttl_secs: i64,
 }
@@ -65,7 +64,6 @@ impl IdentityService {
         token_issuer: Arc<dyn TokenIssuer>,
         password_hasher: Arc<dyn PasswordHasher>,
         refresh_token_hasher: Arc<dyn RefreshTokenHasher>,
-        events: Arc<dyn EventPublisher>,
         clock: Arc<dyn Clock>,
         refresh_ttl_secs: i64,
     ) -> Self {
@@ -78,7 +76,6 @@ impl IdentityService {
             token_issuer,
             password_hasher,
             refresh_token_hasher,
-            events,
             clock,
             refresh_ttl_secs,
         }
@@ -226,19 +223,19 @@ impl IdentityService {
             })
             .collect();
 
+        // Events are enqueued into the outbox in the SAME transaction as state.
+        let events = vec![
+            OutboxMessage::from_auth_event(&self.tenant_created_event(&tenant))?,
+            OutboxMessage::from_auth_event(&self.user_registered_event(&tenant.id, &owner))?,
+        ];
         let spec = TenantProvisioning {
             tenant: tenant.clone(),
             owner: owner.clone(),
             roles,
             owner_role: "OWNER".to_string(),
+            events,
         };
         self.provisioning.provision_tenant(&spec).await?;
-
-        // Post-commit events (Phase 1.5 moves these into the provisioning
-        // transaction via the outbox for at-least-once delivery).
-        self.publish_event(self.tenant_created_event(&tenant)).await;
-        self.publish_event(self.user_registered_event(&tenant.id, &owner))
-            .await;
 
         let tenant_id = tenant.id;
         self.issue_session(owner, tenant_id, vec!["OWNER".to_string()])
@@ -279,11 +276,12 @@ impl IdentityService {
             is_active: true,
             created_at: self.clock.now_utc(),
         };
+        let events = [OutboxMessage::from_auth_event(
+            &self.user_registered_event(tenant_id, &user),
+        )?];
         self.provisioning
-            .provision_user_in_tenant(&user, tenant_id, &role)
+            .provision_user_in_tenant(&user, tenant_id, &role, &events)
             .await?;
-        self.publish_event(self.user_registered_event(tenant_id, &user))
-            .await;
 
         Ok(UserView {
             user,
@@ -349,9 +347,10 @@ impl IdentityService {
             user.is_active = active;
         }
 
-        self.user_repo.update(&user).await?;
-        self.publish_event(self.user_updated_event(tenant_id, &user))
-            .await;
+        let events = [OutboxMessage::from_auth_event(
+            &self.user_updated_event(tenant_id, &user),
+        )?];
+        self.provisioning.update_user(&user, &events).await?;
         let roles = self.role_names(user_id, tenant_id).await?;
         Ok(UserView { user, roles })
     }
@@ -461,12 +460,6 @@ impl IdentityService {
         }
     }
 
-    /// Best-effort publish (Phase 1.3). The infra publisher logs the send/drop;
-    /// at-least-once reliability arrives with the outbox in Phase 1.5.
-    async fn publish_event(&self, event: AuthEvent) {
-        let _ = self.events.publish(event).await;
-    }
-
     fn tenant_created_event(&self, tenant: &Tenant) -> AuthEvent {
         let header = EventHeader::new(
             Uuid::now_v7(),
@@ -531,15 +524,14 @@ mod tests {
 
     use async_trait::async_trait;
     use chrono::{DateTime, Utc};
-    use event_models::auth::AuthEvent;
     use uuid::Uuid;
 
     use super::IdentityService;
     use crate::domain::identity::entities::{RefreshToken, Role, Tenant, User};
+    use crate::domain::identity::outbox::OutboxMessage;
     use crate::domain::identity::ports::{
-        AccessTokenClaims, EventPublisher, IssuedToken, PasswordHasher, ProvisioningRepository,
-        RefreshTokenHasher, RefreshTokenRepository, RoleRepository, TenantRepository, TokenIssuer,
-        UserRepository,
+        AccessTokenClaims, IssuedToken, PasswordHasher, ProvisioningRepository, RefreshTokenHasher,
+        RefreshTokenRepository, RoleRepository, TenantRepository, TokenIssuer, UserRepository,
     };
     use crate::domain::identity::provisioning::TenantProvisioning;
     use crate::domain::identity::rbac;
@@ -708,39 +700,26 @@ mod tests {
         }
     }
 
-    struct FakeEvents;
-    #[async_trait]
-    impl EventPublisher for FakeEvents {
-        async fn publish(&self, _event: AuthEvent) -> DomainResult<()> {
-            Ok(())
-        }
-    }
-
-    /// Captures published event type names so tests can assert on them.
-    #[derive(Default)]
-    struct CapturingEvents {
-        published: Mutex<Vec<String>>,
-    }
-    #[async_trait]
-    impl EventPublisher for CapturingEvents {
-        async fn publish(&self, event: AuthEvent) -> DomainResult<()> {
-            self.published
-                .lock()
-                .unwrap()
-                .push(event.event_type().to_string());
-            Ok(())
-        }
-    }
-
-    /// Captures the provisioning spec passed to it.
+    /// Captures provisioning specs/users and all enqueued event type names so
+    /// tests can assert on what would be written to the outbox.
     #[derive(Default)]
     struct FakeProvisioningRepo {
         specs: Mutex<Vec<TenantProvisioning>>,
         users: Mutex<Vec<(User, TenantId, String)>>,
+        events: Mutex<Vec<String>>,
+    }
+    impl FakeProvisioningRepo {
+        fn record(&self, events: &[OutboxMessage]) {
+            self.events
+                .lock()
+                .unwrap()
+                .extend(events.iter().map(|e| e.event_type.clone()));
+        }
     }
     #[async_trait]
     impl ProvisioningRepository for FakeProvisioningRepo {
         async fn provision_tenant(&self, spec: &TenantProvisioning) -> DomainResult<()> {
+            self.record(&spec.events);
             self.specs.lock().unwrap().push(spec.clone());
             Ok(())
         }
@@ -749,11 +728,17 @@ mod tests {
             user: &User,
             tenant: &TenantId,
             role_name: &str,
+            events: &[OutboxMessage],
         ) -> DomainResult<()> {
+            self.record(events);
             self.users
                 .lock()
                 .unwrap()
                 .push((user.clone(), tenant.clone(), role_name.to_string()));
+            Ok(())
+        }
+        async fn update_user(&self, _user: &User, events: &[OutboxMessage]) -> DomainResult<()> {
+            self.record(events);
             Ok(())
         }
     }
@@ -806,7 +791,6 @@ mod tests {
             Arc::new(FakeTokenIssuer),
             Arc::new(FakePasswordHasher { ok: pw_ok }),
             Arc::new(FakeRefreshHasher::default()),
-            Arc::new(FakeEvents),
             Arc::new(StubClock),
             1_209_600,
         );
@@ -933,7 +917,6 @@ mod tests {
     #[tokio::test]
     async fn register_provisions_tenant_owner_and_publishes_events() {
         let provisioning = Arc::new(FakeProvisioningRepo::default());
-        let events = Arc::new(CapturingEvents::default());
         let refresh = Arc::new(FakeRefreshRepo::default());
         let svc = IdentityService::new(
             Arc::new(FakeUserRepo { users: vec![] }),
@@ -947,7 +930,6 @@ mod tests {
             Arc::new(FakeTokenIssuer),
             Arc::new(FakePasswordHasher { ok: true }),
             Arc::new(FakeRefreshHasher::default()),
-            events.clone(),
             Arc::new(StubClock),
             1_209_600,
         );
@@ -982,9 +964,10 @@ mod tests {
             rbac::ALL_PERMISSIONS.len()
         );
 
-        // Events published after commit: TenantCreated then UserRegistered.
+        // Both events enqueued in the outbox: TenantCreated then UserRegistered.
+        assert_eq!(spec.events.len(), 2);
         assert_eq!(
-            *events.published.lock().unwrap(),
+            *provisioning.events.lock().unwrap(),
             vec!["TenantCreated".to_string(), "UserRegistered".to_string()]
         );
     }
@@ -1024,7 +1007,6 @@ mod tests {
     #[tokio::test]
     async fn create_user_provisions_with_role_and_publishes_user_registered() {
         let provisioning = Arc::new(FakeProvisioningRepo::default());
-        let events = Arc::new(CapturingEvents::default());
         let svc = IdentityService::new(
             Arc::new(FakeUserRepo { users: vec![] }),
             Arc::new(FakeTenantRepo),
@@ -1037,7 +1019,6 @@ mod tests {
             Arc::new(FakeTokenIssuer),
             Arc::new(FakePasswordHasher { ok: true }),
             Arc::new(FakeRefreshHasher::default()),
-            events.clone(),
             Arc::new(StubClock),
             1_209_600,
         );
@@ -1059,7 +1040,7 @@ mod tests {
         assert_eq!(provisioned[0].1 .0, "t1");
         assert_eq!(provisioned[0].2, "STAFF");
         assert_eq!(
-            *events.published.lock().unwrap(),
+            *provisioning.events.lock().unwrap(),
             vec!["UserRegistered".to_string()]
         );
     }
@@ -1084,7 +1065,7 @@ mod tests {
     async fn update_user_changes_fields_and_publishes_user_updated() {
         let existing = user(true);
         let user_id = existing.id;
-        let events = Arc::new(CapturingEvents::default());
+        let provisioning = Arc::new(FakeProvisioningRepo::default());
         let svc = IdentityService::new(
             Arc::new(FakeUserRepo {
                 users: vec![existing],
@@ -1095,11 +1076,10 @@ mod tests {
                 roles: vec![role("ADMIN", "t1")],
             }),
             Arc::new(FakeRefreshRepo::default()),
-            Arc::new(FakeProvisioningRepo::default()),
+            provisioning.clone(),
             Arc::new(FakeTokenIssuer),
             Arc::new(FakePasswordHasher { ok: true }),
             Arc::new(FakeRefreshHasher::default()),
-            events.clone(),
             Arc::new(StubClock),
             1_209_600,
         );
@@ -1118,7 +1098,7 @@ mod tests {
         assert!(!view.user.is_active);
         assert_eq!(view.roles, vec!["ADMIN".to_string()]);
         assert_eq!(
-            *events.published.lock().unwrap(),
+            *provisioning.events.lock().unwrap(),
             vec!["UserUpdated".to_string()]
         );
     }
@@ -1148,7 +1128,6 @@ mod tests {
             Arc::new(FakeTokenIssuer),
             Arc::new(FakePasswordHasher { ok: true }),
             Arc::new(FakeRefreshHasher::default()),
-            Arc::new(FakeEvents),
             Arc::new(StubClock),
             1_209_600,
         )

@@ -5,9 +5,10 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use event_models::auth::AuthEvent;
+use uuid::Uuid;
 
 use crate::domain::identity::entities::{RefreshToken, Role, Tenant, User};
+use crate::domain::identity::outbox::OutboxMessage;
 use crate::domain::identity::provisioning::TenantProvisioning;
 use crate::domain::shared::error::DomainResult;
 use crate::domain::shared::types::{Email, TenantId, UserId};
@@ -60,21 +61,45 @@ pub trait RefreshTokenRepository: Send + Sync {
     async fn revoke(&self, token_hash: &str) -> DomainResult<()>;
 }
 
-/// Atomic tenant provisioning: persists the tenant, its owner, default roles +
-/// `role_permissions`, and the owner's role assignment in ONE transaction.
+/// Transactional writes that also enqueue events into the outbox in the SAME
+/// transaction (DATA-STRATEGY.md §3.2), so state and events commit together.
 /// A duplicate owner email surfaces as `DomainError::Conflict`.
 #[async_trait]
 pub trait ProvisioningRepository: Send + Sync {
+    /// Tenant + owner + default roles/permissions + owner role assignment, plus
+    /// `spec.events`, in one transaction.
     async fn provision_tenant(&self, spec: &TenantProvisioning) -> DomainResult<()>;
-    /// Create `user` and assign them `role_name` within `tenant`, atomically.
-    /// `NotFound` if the role does not exist in the tenant; `Conflict` on a
-    /// duplicate email.
+    /// Create `user`, assign `role_name` within `tenant`, and enqueue `events`,
+    /// in one transaction. `NotFound` if the role is absent in the tenant.
     async fn provision_user_in_tenant(
         &self,
         user: &User,
         tenant: &TenantId,
         role_name: &str,
+        events: &[OutboxMessage],
     ) -> DomainResult<()>;
+    /// Update a user's mutable fields and enqueue `events`, in one transaction.
+    async fn update_user(&self, user: &User, events: &[OutboxMessage]) -> DomainResult<()>;
+}
+
+// ---------------------------------------------------------------------------
+// Outbox relay ports (DATA-STRATEGY.md §3.2)
+// ---------------------------------------------------------------------------
+
+/// Read/clear side of the outbox, used by the relay worker.
+#[async_trait]
+pub trait OutboxRepository: Send + Sync {
+    /// Oldest unpublished messages, up to `limit`.
+    async fn fetch_unpublished(&self, limit: i64) -> DomainResult<Vec<OutboxMessage>>;
+    /// Mark a message published (idempotent).
+    async fn mark_published(&self, event_id: &Uuid) -> DomainResult<()>;
+}
+
+/// Raw event-bus publisher (subject + bytes), used by the relay worker to ship
+/// outbox messages to NATS.
+#[async_trait]
+pub trait RawEventPublisher: Send + Sync {
+    async fn publish(&self, subject: &str, payload: &[u8]) -> DomainResult<()>;
 }
 
 // ---------------------------------------------------------------------------
@@ -129,19 +154,4 @@ pub trait TokenIssuer: Send + Sync {
     ) -> DomainResult<IssuedToken>;
 
     fn validate_access_token(&self, token: &str) -> DomainResult<AccessTokenClaims>;
-}
-
-// ---------------------------------------------------------------------------
-// Messaging port (implemented in infra/messaging/nats.rs)
-// ---------------------------------------------------------------------------
-
-/// Business-event publisher (EVENTS.md).
-///
-/// Contract: events are published AFTER the owning DB transaction commits.
-/// TODO(Phase 1.5): route publishes through an outbox table inside the same
-/// transaction + a relay worker (DATA-STRATEGY.md §3.2) instead of direct
-/// post-commit publishing.
-#[async_trait]
-pub trait EventPublisher: Send + Sync {
-    async fn publish(&self, event: AuthEvent) -> DomainResult<()>;
 }
