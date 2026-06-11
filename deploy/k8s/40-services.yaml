@@ -1,0 +1,352 @@
+# The six platform services. Images are built from deploy/Dockerfile
+# (`--build-arg SERVICE=<name>`) and pushed to your registry; replace the
+# `digicore/<svc>:latest` placeholders accordingly.
+#
+# Every service reads shared config from the `digicore-config` ConfigMap and
+# mounts the RS256 public key from the `digicore-jwt` secret at /keys. auth-svc
+# additionally mounts the private key to sign tokens.
+
+# ----------------------------------------------------------------------------
+# auth-svc (:8081, /api/v1/auth) — issues tokens, so it needs the private key.
+# ----------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-svc
+  namespace: digicore
+  labels: { app: auth-svc }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: auth-svc }
+  template:
+    metadata:
+      labels: { app: auth-svc }
+    spec:
+      containers:
+        - name: auth-svc
+          image: digicore/auth-svc:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: digicore-config
+          env:
+            - name: JWT_PRIVATE_KEY_PATH
+              value: /keys/jwt_private.pem
+          ports:
+            - containerPort: 8081
+          volumeMounts:
+            - name: jwt-keys
+              mountPath: /keys
+              readOnly: true
+          readinessProbe:
+            httpGet: { path: /api/v1/auth/ready, port: 8081 }
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /api/v1/auth/health, port: 8081 }
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits: { cpu: "500m", memory: "256Mi" }
+      volumes:
+        - name: jwt-keys
+          secret:
+            secretName: digicore-jwt
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-svc
+  namespace: digicore
+spec:
+  selector: { app: auth-svc }
+  ports:
+    - port: 8081
+      targetPort: 8081
+---
+# ----------------------------------------------------------------------------
+# core-erp-svc (:8082, /api/v1/erp)
+# ----------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: core-erp-svc
+  namespace: digicore
+  labels: { app: core-erp-svc }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: core-erp-svc }
+  template:
+    metadata:
+      labels: { app: core-erp-svc }
+    spec:
+      containers:
+        - name: core-erp-svc
+          image: digicore/core-erp-svc:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: digicore-config
+          ports:
+            - containerPort: 8082
+          volumeMounts:
+            - name: jwt-keys
+              mountPath: /keys
+              readOnly: true
+          readinessProbe:
+            httpGet: { path: /api/v1/erp/ready, port: 8082 }
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /api/v1/erp/health, port: 8082 }
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits: { cpu: "500m", memory: "256Mi" }
+      volumes:
+        - name: jwt-keys
+          secret:
+            secretName: digicore-jwt
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: core-erp-svc
+  namespace: digicore
+spec:
+  selector: { app: core-erp-svc }
+  ports:
+    - port: 8082
+      targetPort: 8082
+---
+# ----------------------------------------------------------------------------
+# crm-svc (:8083, /api/v1/crm)
+# ----------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crm-svc
+  namespace: digicore
+  labels: { app: crm-svc }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: crm-svc }
+  template:
+    metadata:
+      labels: { app: crm-svc }
+    spec:
+      containers:
+        - name: crm-svc
+          image: digicore/crm-svc:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: digicore-config
+          ports:
+            - containerPort: 8083
+          volumeMounts:
+            - name: jwt-keys
+              mountPath: /keys
+              readOnly: true
+          readinessProbe:
+            httpGet: { path: /api/v1/crm/ready, port: 8083 }
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /api/v1/crm/health, port: 8083 }
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits: { cpu: "500m", memory: "256Mi" }
+      volumes:
+        - name: jwt-keys
+          secret:
+            secretName: digicore-jwt
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: crm-svc
+  namespace: digicore
+spec:
+  selector: { app: crm-svc }
+  ports:
+    - port: 8083
+      targetPort: 8083
+---
+# ----------------------------------------------------------------------------
+# hrm-svc (:8084, /api/v1/hrm)
+# ----------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hrm-svc
+  namespace: digicore
+  labels: { app: hrm-svc }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: hrm-svc }
+  template:
+    metadata:
+      labels: { app: hrm-svc }
+    spec:
+      containers:
+        - name: hrm-svc
+          image: digicore/hrm-svc:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: digicore-config
+          ports:
+            - containerPort: 8084
+          volumeMounts:
+            - name: jwt-keys
+              mountPath: /keys
+              readOnly: true
+          readinessProbe:
+            httpGet: { path: /api/v1/hrm/ready, port: 8084 }
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /api/v1/hrm/health, port: 8084 }
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits: { cpu: "500m", memory: "256Mi" }
+      volumes:
+        - name: jwt-keys
+          secret:
+            secretName: digicore-jwt
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hrm-svc
+  namespace: digicore
+spec:
+  selector: { app: hrm-svc }
+  ports:
+    - port: 8084
+      targetPort: 8084
+---
+# ----------------------------------------------------------------------------
+# reporting-svc (:8085, /api/v1/reporting)
+# ----------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reporting-svc
+  namespace: digicore
+  labels: { app: reporting-svc }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: reporting-svc }
+  template:
+    metadata:
+      labels: { app: reporting-svc }
+    spec:
+      containers:
+        - name: reporting-svc
+          image: digicore/reporting-svc:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: digicore-config
+          ports:
+            - containerPort: 8085
+          volumeMounts:
+            - name: jwt-keys
+              mountPath: /keys
+              readOnly: true
+          readinessProbe:
+            httpGet: { path: /api/v1/reporting/ready, port: 8085 }
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /api/v1/reporting/health, port: 8085 }
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits: { cpu: "500m", memory: "256Mi" }
+      volumes:
+        - name: jwt-keys
+          secret:
+            secretName: digicore-jwt
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: reporting-svc
+  namespace: digicore
+spec:
+  selector: { app: reporting-svc }
+  ports:
+    - port: 8085
+      targetPort: 8085
+---
+# ----------------------------------------------------------------------------
+# ai-svc (:8086, /api/v1/ai)
+# ----------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-svc
+  namespace: digicore
+  labels: { app: ai-svc }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: ai-svc }
+  template:
+    metadata:
+      labels: { app: ai-svc }
+    spec:
+      containers:
+        - name: ai-svc
+          image: digicore/ai-svc:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: digicore-config
+          ports:
+            - containerPort: 8086
+          volumeMounts:
+            - name: jwt-keys
+              mountPath: /keys
+              readOnly: true
+          readinessProbe:
+            httpGet: { path: /api/v1/ai/ready, port: 8086 }
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /api/v1/ai/health, port: 8086 }
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits: { cpu: "500m", memory: "256Mi" }
+      volumes:
+        - name: jwt-keys
+          secret:
+            secretName: digicore-jwt
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-svc
+  namespace: digicore
+spec:
+  selector: { app: ai-svc }
+  ports:
+    - port: 8086
+      targetPort: 8086
