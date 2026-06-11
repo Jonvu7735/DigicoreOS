@@ -3,7 +3,7 @@
 //! Business routes live under the gateway prefix `/api/v1/erp/...`
 //! (API-GATEWAY.md §4). `/metrics` is exposed at the root for Prometheus.
 
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::Router;
 use tower_http::trace::TraceLayer;
 
@@ -25,8 +25,23 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/products/{product_id}",
             get(handlers::products::get).patch(handlers::products::update),
-        );
-    // TODO(Phase 3 cont.): orders, payments, inventory, invoices (API-GATEWAY.md §4).
+        )
+        // --- orders (RBAC-guarded, API-GATEWAY.md §4.1) ---
+        .route(
+            "/orders",
+            get(handlers::orders::list).post(handlers::orders::create),
+        )
+        .route("/orders/{order_id}", get(handlers::orders::get))
+        .route(
+            "/orders/{order_id}/confirm",
+            post(handlers::orders::confirm),
+        )
+        .route(
+            "/orders/{order_id}/complete",
+            post(handlers::orders::complete),
+        )
+        .route("/orders/{order_id}/cancel", post(handlers::orders::cancel));
+    // TODO(Phase 3 cont.): payments, inventory, invoices (API-GATEWAY.md §4).
 
     Router::new()
         .nest("/api/v1/erp", erp_routes)
