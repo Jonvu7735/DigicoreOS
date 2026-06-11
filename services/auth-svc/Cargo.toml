@@ -36,6 +36,8 @@ async-nats = { workspace = true }
 # security (infra layer ONLY)
 jsonwebtoken = { workspace = true }
 argon2 = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
 base64ct = { workspace = true }   # pinned for MSRV; transitive dep of argon2
 time = { workspace = true }       # pinned for MSRV; transitive dep of async-nats/sqlx
 home = { workspace = true }       # pinned for MSRV; transitive dep of sqlx
@@ -45,3 +47,9 @@ indexmap = { workspace = true }     # pinned for MSRV; transitive (h2/sqlx)
 # observability
 tracing = { workspace = true }
 metrics = { workspace = true }
+
+[dev-dependencies]
+# Generate an ephemeral RSA key pair for RS256 token round-trip tests so the
+# suite needs no committed key material (SECURITY.md: never commit secrets).
+rsa = { workspace = true }
+rand = { workspace = true }

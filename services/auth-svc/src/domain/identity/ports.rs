@@ -35,6 +35,9 @@ pub trait RoleRepository: Send + Sync {
     async fn roles_for_user(&self, user: &UserId, tenant: &TenantId) -> DomainResult<Vec<Role>>;
     /// Permission codes granted to a role (SECURITY.md role -> permission map).
     async fn permission_codes_for_role(&self, role: &Role) -> DomainResult<Vec<String>>;
+    /// Distinct tenants a user has any role in. Used to infer the login tenant
+    /// when the client omits `tenant_id` and the user belongs to exactly one.
+    async fn tenant_ids_for_user(&self, user: &UserId) -> DomainResult<Vec<TenantId>>;
 }
 
 #[async_trait]
@@ -74,6 +77,16 @@ pub struct AccessTokenClaims {
 pub struct IssuedToken {
     pub token: String,
     pub expires_in: i64,
+}
+
+/// Opaque refresh-token generation + hashing (implemented in
+/// infra/security/refresh_token.rs). The raw value is returned to the client
+/// once; only its hash is persisted (SECURITY.md: never store raw tokens).
+pub trait RefreshTokenHasher: Send + Sync {
+    /// A fresh, high-entropy opaque token (the raw value handed to the client).
+    fn generate_opaque(&self) -> String;
+    /// Deterministic hash of a raw token, used for storage and lookup.
+    fn hash(&self, raw: &str) -> String;
 }
 
 /// JWT issue/validate port (implemented by infra/security/jwt.rs).

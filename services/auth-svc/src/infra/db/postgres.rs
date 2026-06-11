@@ -6,6 +6,7 @@
 
 use std::str::FromStr;
 
+use anyhow::Context;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::PgPool;
 
@@ -28,6 +29,16 @@ pub fn connect_lazy(config: &AppConfig) -> anyhow::Result<PgPool> {
     Ok(pool)
 }
 
-// TODO(Phase 1.2): run `sqlx::migrate!("./migrations")` at startup once the
-// initial schema migration (tenants, users, roles, permissions, user_roles,
-// role_permissions, refresh_tokens, outbox_events) is written.
+/// Apply pending migrations from `./migrations` into the `auth_svc` schema.
+///
+/// Run once at startup (bootstrap/wiring.rs). This needs a live database, so a
+/// failure here is fatal: the service cannot serve auth without its schema.
+/// `_sqlx_migrations` is created inside `auth_svc` because the pool's
+/// `search_path` is pinned to it.
+pub async fn run_migrations(pool: &PgPool) -> anyhow::Result<()> {
+    sqlx::migrate!("./migrations")
+        .run(pool)
+        .await
+        .context("failed to apply auth_svc migrations")?;
+    Ok(())
+}

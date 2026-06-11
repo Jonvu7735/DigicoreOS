@@ -12,10 +12,10 @@
 
 pub mod header;
 
-pub mod auth;
-pub mod erp;
-pub mod crm;
-pub mod hrm;
 pub mod ai;
+pub mod auth;
+pub mod crm;
+pub mod erp;
+pub mod hrm;
 
 pub use header::EventHeader;

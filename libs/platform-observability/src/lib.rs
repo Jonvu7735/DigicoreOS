@@ -16,8 +16,8 @@
 //! TODO(Phase 1.4): add `tracing-opentelemetry` bridge + OTLP exporter so
 //! `trace_id`/`span_id` are W3C-compatible and propagate over HTTP & NATS.
 
-pub use metrics_exporter_prometheus::PrometheusHandle;
 use metrics_exporter_prometheus::PrometheusBuilder;
+pub use metrics_exporter_prometheus::PrometheusHandle;
 use tracing_subscriber::EnvFilter;
 
 /// Initialize JSON logging for a service. Call once, first thing in `main`.

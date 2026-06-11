@@ -1,12 +1,26 @@
 //! `TenantRepository` implementation backed by Postgres (`auth_svc.tenants`).
 
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 
 use crate::domain::identity::entities::Tenant;
 use crate::domain::identity::ports::TenantRepository;
-use crate::domain::shared::error::{DomainError, DomainResult};
+use crate::domain::shared::error::DomainResult;
 use crate::domain::shared::types::TenantId;
+use crate::infra::db::{map_db_err, map_write_err};
+
+type TenantRow = (String, String, String, bool, DateTime<Utc>);
+
+fn to_tenant(r: TenantRow) -> Tenant {
+    Tenant {
+        id: TenantId(r.0),
+        name: r.1,
+        plan: r.2,
+        is_active: r.3,
+        created_at: r.4,
+    }
+}
 
 pub struct PgTenantRepo {
     pool: PgPool,
@@ -20,19 +34,32 @@ impl PgTenantRepo {
 
 #[async_trait]
 impl TenantRepository for PgTenantRepo {
-    // TODO(Phase 1.3): SELECT ... FROM tenants WHERE id = $1
-    async fn find_by_id(&self, _id: &TenantId) -> DomainResult<Option<Tenant>> {
-        Err(DomainError::Internal(
-            "PgTenantRepo::find_by_id not implemented (Phase 1.3)".into(),
-        ))
+    async fn find_by_id(&self, id: &TenantId) -> DomainResult<Option<Tenant>> {
+        let row: Option<TenantRow> = sqlx::query_as(
+            "SELECT id, name, plan, is_active, created_at FROM tenants WHERE id = $1",
+        )
+        .bind(&id.0)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_db_err)?;
+        Ok(row.map(to_tenant))
     }
 
-    // TODO(Phase 1.3): INSERT INTO tenants (...) VALUES (...). Creating a
-    // tenant must also write a `TenantCreated` row to the outbox in the SAME
-    // transaction (DATA-STRATEGY.md §3.2).
-    async fn insert(&self, _tenant: &Tenant) -> DomainResult<()> {
-        Err(DomainError::Internal(
-            "PgTenantRepo::insert not implemented (Phase 1.3)".into(),
-        ))
+    async fn insert(&self, tenant: &Tenant) -> DomainResult<()> {
+        // Phase 1.3/1.5: create_tenant writes a `TenantCreated` outbox row in the
+        // same transaction; this plain insert is used by that use-case and tests.
+        sqlx::query(
+            "INSERT INTO tenants (id, name, plan, is_active, created_at) \
+             VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(&tenant.id.0)
+        .bind(&tenant.name)
+        .bind(&tenant.plan)
+        .bind(tenant.is_active)
+        .bind(tenant.created_at)
+        .execute(&self.pool)
+        .await
+        .map_err(map_write_err)?;
+        Ok(())
     }
 }

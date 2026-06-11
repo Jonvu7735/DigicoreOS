@@ -17,6 +17,7 @@ services/
   ai-svc/                  # LLM abstraction, RAG, embeddings, insights            [Phase 5]
 deploy/
   docker-compose.dev.yml   # Local Postgres + NATS for development
+docs/                      # Governing docs (ARCHITECTURE, AUTH-FLOW, SECURITY, EVENTS, ...)
 verticals/                 # Sector modules (retail, trade-export, ...) – LATER.
                            # Consume core via public APIs/events ONLY. Never core deps.
 ```
@@ -38,6 +39,10 @@ verticals/                 # Sector modules (retail, trade-export, ...) – LATE
 
 ```bash
 docker compose -f deploy/docker-compose.dev.yml up -d   # Postgres + NATS
-cargo run -p auth-svc                                   # http://localhost:8081
+bash scripts/gen-dev-jwt-keys.sh                        # dev RS256 keys -> .dev/ (gitignored)
+cargo run -p auth-svc                                   # http://localhost:8081 (applies migrations)
 curl localhost:8081/api/v1/auth/health
 ```
+
+Auth flows (`/api/v1/auth/login|refresh|logout`) are live in Phase 1.2; sign-up
+(`/register`) and user/tenant management land in Phase 1.3.

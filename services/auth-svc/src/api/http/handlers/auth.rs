@@ -16,32 +16,46 @@ use crate::bootstrap::wiring::AppState;
 use crate::domain::shared::types::{Email, TenantId};
 
 /// `POST /api/v1/auth/login`
+///
+/// Emits `auth_login_success_total` / `auth_login_failed_total` and an INFO log
+/// (no password/email/token – OBSERVABILITY.md §3.4) here in the api layer so
+/// the domain service stays free of logging/metrics concerns.
 pub async fn login(
     State(state): State<AppState>,
     Json(body): Json<LoginRequest>,
 ) -> Result<Json<LoginResponse>, ApiError> {
-    let outcome = state
+    match state
         .identity
         .login(
             Email(body.email),
             body.password,
             body.tenant_id.map(TenantId),
         )
-        .await?;
-
-    Ok(Json(LoginResponse {
-        access_token: outcome.access.token,
-        token_type: "Bearer".into(),
-        expires_in: outcome.access.expires_in,
-        refresh_token: outcome.refresh_token,
-        user: UserSummary {
-            id: outcome.user.id.to_string(),
-            email: outcome.user.email.to_string(),
-            display_name: outcome.user.display_name,
-            tenant_id: outcome.tenant_id.0,
-            roles: outcome.roles,
-        },
-    }))
+        .await
+    {
+        Ok(outcome) => {
+            metrics::counter!("auth_login_success_total", "service" => "auth-svc").increment(1);
+            tracing::info!(user_id = %outcome.user.id, tenant_id = %outcome.tenant_id, "login successful");
+            Ok(Json(LoginResponse {
+                access_token: outcome.access.token,
+                token_type: "Bearer".into(),
+                expires_in: outcome.access.expires_in,
+                refresh_token: outcome.refresh_token,
+                user: UserSummary {
+                    id: outcome.user.id.to_string(),
+                    email: outcome.user.email.to_string(),
+                    display_name: outcome.user.display_name,
+                    tenant_id: outcome.tenant_id.0,
+                    roles: outcome.roles,
+                },
+            }))
+        }
+        Err(err) => {
+            metrics::counter!("auth_login_failed_total", "service" => "auth-svc").increment(1);
+            tracing::info!("login failed");
+            Err(err.into())
+        }
+    }
 }
 
 /// `POST /api/v1/auth/refresh`
@@ -49,14 +63,21 @@ pub async fn refresh(
     State(state): State<AppState>,
     Json(body): Json<RefreshRequest>,
 ) -> Result<Json<RefreshResponse>, ApiError> {
-    let outcome = state.identity.refresh(body.refresh_token).await?;
-
-    Ok(Json(RefreshResponse {
-        access_token: outcome.access.token,
-        token_type: "Bearer".into(),
-        expires_in: outcome.access.expires_in,
-        refresh_token: Some(outcome.refresh_token),
-    }))
+    match state.identity.refresh(body.refresh_token).await {
+        Ok(outcome) => {
+            metrics::counter!("auth_refresh_success_total", "service" => "auth-svc").increment(1);
+            Ok(Json(RefreshResponse {
+                access_token: outcome.access.token,
+                token_type: "Bearer".into(),
+                expires_in: outcome.access.expires_in,
+                refresh_token: Some(outcome.refresh_token),
+            }))
+        }
+        Err(err) => {
+            metrics::counter!("auth_refresh_failed_total", "service" => "auth-svc").increment(1);
+            Err(err.into())
+        }
+    }
 }
 
 /// `POST /api/v1/auth/logout`

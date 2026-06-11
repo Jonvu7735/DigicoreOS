@@ -13,8 +13,8 @@ use sqlx::PgPool;
 use crate::api;
 use crate::bootstrap::config::AppConfig;
 use crate::domain::identity::ports::{
-    EventPublisher, PasswordHasher, RefreshTokenRepository, RoleRepository, TenantRepository,
-    TokenIssuer, UserRepository,
+    EventPublisher, PasswordHasher, RefreshTokenHasher, RefreshTokenRepository, RoleRepository,
+    TenantRepository, TokenIssuer, UserRepository,
 };
 use crate::domain::identity::services::IdentityService;
 use crate::domain::shared::types::Clock;
@@ -25,6 +25,7 @@ use crate::infra::db::tenant_repo_pg::PgTenantRepo;
 use crate::infra::db::user_repo_pg::PgUserRepo;
 use crate::infra::security::jwt::JwtTokenIssuer;
 use crate::infra::security::password::Argon2PasswordHasher;
+use crate::infra::security::refresh_token::Sha256RefreshTokenHasher;
 use crate::infra::time::clock::SystemClock;
 
 /// Shared application state injected into every handler.
@@ -45,9 +46,10 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
     let metrics = platform_observability::install_prometheus()?;
 
     // Postgres pool, pinned to this service's schema (DATA-STRATEGY.md §3.1).
-    // `connect_lazy` lets the service boot before the DB is up; /ready reports
-    // actual connectivity.
     let db = infra::db::postgres::connect_lazy(&config)?;
+    // Apply schema migrations at startup (fatal if the DB is unreachable: the
+    // service cannot serve auth without its schema).
+    infra::db::postgres::run_migrations(&db).await?;
 
     // --- infra adapters bound to domain ports ---
     let clock: Arc<dyn Clock> = Arc::new(SystemClock);
@@ -58,8 +60,9 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
     let role_repo: Arc<dyn RoleRepository> = Arc::new(PgRoleRepo::new(db.clone()));
     let refresh_token_repo: Arc<dyn RefreshTokenRepository> =
         Arc::new(PgRefreshTokenRepo::new(db.clone()));
-    let token_issuer: Arc<dyn TokenIssuer> = Arc::new(JwtTokenIssuer::from_config(&config.jwt));
-    let password_hasher: Arc<dyn PasswordHasher> = Arc::new(Argon2PasswordHasher::default());
+    let token_issuer: Arc<dyn TokenIssuer> = Arc::new(JwtTokenIssuer::from_config(&config.jwt)?);
+    let password_hasher: Arc<dyn PasswordHasher> = Arc::new(Argon2PasswordHasher);
+    let refresh_token_hasher: Arc<dyn RefreshTokenHasher> = Arc::new(Sha256RefreshTokenHasher);
 
     // --- domain services ---
     let identity = Arc::new(IdentityService::new(
@@ -69,8 +72,10 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
         refresh_token_repo,
         token_issuer,
         password_hasher,
+        refresh_token_hasher,
         event_publisher,
         clock,
+        config.jwt.refresh_ttl_secs,
     ));
 
     Ok(AppState {

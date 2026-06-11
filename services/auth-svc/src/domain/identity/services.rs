@@ -1,15 +1,18 @@
 //! Use-case layer for the identity context.
 //!
 //! Each public method corresponds to a use-case from AUTH-FLOW.md /
-//! SERVICE-auth-svc.md. Handlers call these; these call ports. No HTTP or SQL
-//! concepts appear here.
+//! SERVICE-auth-svc.md. Handlers call these; these call ports. No HTTP, SQL, or
+//! logging/metrics concepts appear here (those live in the api/infra layers).
 
 use std::sync::Arc;
 
-use crate::domain::identity::entities::User;
+use chrono::Duration;
+use uuid::Uuid;
+
+use crate::domain::identity::entities::{RefreshToken, User};
 use crate::domain::identity::ports::{
-    EventPublisher, IssuedToken, PasswordHasher, RefreshTokenRepository, RoleRepository,
-    TenantRepository, TokenIssuer, UserRepository,
+    EventPublisher, IssuedToken, PasswordHasher, RefreshTokenHasher, RefreshTokenRepository,
+    RoleRepository, TenantRepository, TokenIssuer, UserRepository,
 };
 use crate::domain::shared::error::{DomainError, DomainResult};
 use crate::domain::shared::types::{Clock, Email, TenantId, UserId};
@@ -32,8 +35,10 @@ pub struct IdentityService {
     refresh_token_repo: Arc<dyn RefreshTokenRepository>,
     token_issuer: Arc<dyn TokenIssuer>,
     password_hasher: Arc<dyn PasswordHasher>,
+    refresh_token_hasher: Arc<dyn RefreshTokenHasher>,
     events: Arc<dyn EventPublisher>,
     clock: Arc<dyn Clock>,
+    refresh_ttl_secs: i64,
 }
 
 impl IdentityService {
@@ -45,8 +50,10 @@ impl IdentityService {
         refresh_token_repo: Arc<dyn RefreshTokenRepository>,
         token_issuer: Arc<dyn TokenIssuer>,
         password_hasher: Arc<dyn PasswordHasher>,
+        refresh_token_hasher: Arc<dyn RefreshTokenHasher>,
         events: Arc<dyn EventPublisher>,
         clock: Arc<dyn Clock>,
+        refresh_ttl_secs: i64,
     ) -> Self {
         Self {
             user_repo,
@@ -55,47 +62,79 @@ impl IdentityService {
             refresh_token_repo,
             token_issuer,
             password_hasher,
+            refresh_token_hasher,
             events,
             clock,
+            refresh_ttl_secs,
         }
     }
 
     /// AUTH-FLOW.md §4 – Login.
     ///
-    /// TODO(Phase 1.2): implement:
-    /// 1. find user by email; verify password via `PasswordHasher`;
-    /// 2. resolve tenant context (input tenant or user's default);
-    /// 3. load roles via `RoleRepository`;
-    /// 4. issue access token via `TokenIssuer` + persist hashed refresh token;
-    /// 5. return `LoginOutcome`. Log INFO success/fail WITHOUT password/token.
+    /// Verify credentials, resolve the tenant context, load roles, then issue an
+    /// access token and a stored (hashed) refresh token. Returns `Unauthorized`
+    /// for any credential failure without revealing which part failed.
     pub async fn login(
         &self,
-        _email: Email,
-        _raw_password: String,
-        _tenant_id: Option<TenantId>,
+        email: Email,
+        raw_password: String,
+        tenant_id: Option<TenantId>,
     ) -> DomainResult<LoginOutcome> {
-        Err(DomainError::Internal(
-            "IdentityService::login not implemented yet (Phase 1.2)".into(),
-        ))
+        let user = self
+            .user_repo
+            .find_by_email(&email)
+            .await?
+            .ok_or_else(|| DomainError::Unauthorized("invalid email or password".into()))?;
+
+        if !user.is_active {
+            return Err(DomainError::Unauthorized("account is inactive".into()));
+        }
+        if !self
+            .password_hasher
+            .verify(&raw_password, &user.password_hash)?
+        {
+            return Err(DomainError::Unauthorized(
+                "invalid email or password".into(),
+            ));
+        }
+
+        let tenant_id = self.resolve_login_tenant(&user.id, tenant_id).await?;
+        let roles = self.role_names(&user.id, &tenant_id).await?;
+        self.issue_session(user, tenant_id, roles).await
     }
 
-    /// AUTH-FLOW.md §5 – Refresh.
-    ///
-    /// TODO(Phase 1.2): validate refresh token (exists, unexpired, unrevoked),
-    /// issue a new access token, optionally rotate the refresh token.
-    pub async fn refresh(&self, _refresh_token: String) -> DomainResult<LoginOutcome> {
-        Err(DomainError::Internal(
-            "IdentityService::refresh not implemented yet (Phase 1.2)".into(),
-        ))
+    /// AUTH-FLOW.md §5 – Refresh (with rotation: the presented token is revoked
+    /// and a new one issued).
+    pub async fn refresh(&self, raw_refresh_token: String) -> DomainResult<LoginOutcome> {
+        let hash = self.refresh_token_hasher.hash(&raw_refresh_token);
+        let existing = self
+            .refresh_token_repo
+            .find_valid_by_hash(&hash)
+            .await?
+            .ok_or_else(|| DomainError::Unauthorized("invalid or expired refresh token".into()))?;
+
+        let user = self
+            .user_repo
+            .find_by_id(&existing.user_id)
+            .await?
+            .ok_or_else(|| DomainError::Unauthorized("user no longer exists".into()))?;
+        if !user.is_active {
+            return Err(DomainError::Unauthorized("account is inactive".into()));
+        }
+
+        let tenant_id = existing.tenant_id.clone();
+        let roles = self.role_names(&user.id, &tenant_id).await?;
+
+        // Rotate: revoke the presented token before issuing a fresh session.
+        self.refresh_token_repo.revoke(&existing.token_hash).await?;
+        self.issue_session(user, tenant_id, roles).await
     }
 
     /// AUTH-FLOW.md §6 – Logout: revoke the refresh token server-side.
-    ///
-    /// TODO(Phase 1.2): hash incoming token, call `RefreshTokenRepository::revoke`.
-    pub async fn logout(&self, _refresh_token: String) -> DomainResult<()> {
-        Err(DomainError::Internal(
-            "IdentityService::logout not implemented yet (Phase 1.2)".into(),
-        ))
+    /// Idempotent – an unknown token is treated as already logged out.
+    pub async fn logout(&self, raw_refresh_token: String) -> DomainResult<()> {
+        let hash = self.refresh_token_hasher.hash(&raw_refresh_token);
+        self.refresh_token_repo.revoke(&hash).await
     }
 
     /// `GET /api/v1/auth/me` – current user profile.
@@ -106,7 +145,406 @@ impl IdentityService {
             .ok_or_else(|| DomainError::NotFound(format!("user {user_id}")))
     }
 
-    // TODO(Phase 1.3): register_user / create_tenant use-cases. Both must,
-    // after the DB commit, publish `UserRegistered` / `TenantCreated` via the
-    // `EventPublisher` port (subjects in event-models::auth::subjects).
+    // --- internals -----------------------------------------------------------
+
+    /// Issue an access token + a fresh stored refresh token for `(user, tenant)`.
+    async fn issue_session(
+        &self,
+        user: User,
+        tenant_id: TenantId,
+        roles: Vec<String>,
+    ) -> DomainResult<LoginOutcome> {
+        let now = self.clock.now_utc();
+        let access = self
+            .token_issuer
+            .issue_access_token(&user.id, &tenant_id, &roles, now)?;
+
+        let raw_refresh = self.refresh_token_hasher.generate_opaque();
+        let refresh = RefreshToken {
+            id: Uuid::now_v7(),
+            user_id: user.id,
+            tenant_id: tenant_id.clone(),
+            token_hash: self.refresh_token_hasher.hash(&raw_refresh),
+            expires_at: now + Duration::seconds(self.refresh_ttl_secs),
+            revoked_at: None,
+            created_at: now,
+        };
+        self.refresh_token_repo.insert(&refresh).await?;
+
+        Ok(LoginOutcome {
+            access,
+            refresh_token: raw_refresh,
+            user,
+            tenant_id,
+            roles,
+        })
+    }
+
+    async fn role_names(
+        &self,
+        user_id: &UserId,
+        tenant_id: &TenantId,
+    ) -> DomainResult<Vec<String>> {
+        Ok(self
+            .role_repo
+            .roles_for_user(user_id, tenant_id)
+            .await?
+            .into_iter()
+            .map(|r| r.name)
+            .collect())
+    }
+
+    /// Pick the tenant for the session: the requested one, or the user's only
+    /// tenant. Ambiguous (multiple) or empty membership is an error.
+    async fn resolve_login_tenant(
+        &self,
+        user_id: &UserId,
+        requested: Option<TenantId>,
+    ) -> DomainResult<TenantId> {
+        if let Some(tenant_id) = requested {
+            return Ok(tenant_id);
+        }
+        let mut tenants = self.role_repo.tenant_ids_for_user(user_id).await?;
+        match tenants.len() {
+            1 => Ok(tenants.pop().expect("length checked")),
+            0 => Err(DomainError::Unauthorized(
+                "user does not belong to any tenant".into(),
+            )),
+            _ => Err(DomainError::Validation(
+                "tenant_id is required: user belongs to multiple tenants".into(),
+            )),
+        }
+    }
+
+    // TODO(Phase 1.3): register_user / create_tenant use-cases. Both must, after
+    // the DB commit, publish `UserRegistered` / `TenantCreated` via the
+    // `EventPublisher` port (subjects in event-models::auth::subjects). The
+    // `events`, `tenant_repo` fields are wired here ready for that work.
+    #[allow(dead_code)]
+    fn _phase_1_3_placeholder(&self) -> (&Arc<dyn EventPublisher>, &Arc<dyn TenantRepository>) {
+        (&self.events, &self.tenant_repo)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    use async_trait::async_trait;
+    use chrono::{DateTime, Utc};
+    use event_models::auth::AuthEvent;
+    use uuid::Uuid;
+
+    use super::IdentityService;
+    use crate::domain::identity::entities::{RefreshToken, Role, Tenant, User};
+    use crate::domain::identity::ports::{
+        AccessTokenClaims, EventPublisher, IssuedToken, PasswordHasher, RefreshTokenHasher,
+        RefreshTokenRepository, RoleRepository, TenantRepository, TokenIssuer, UserRepository,
+    };
+    use crate::domain::shared::error::{DomainError, DomainResult};
+    use crate::domain::shared::types::{Clock, Email, RoleId, TenantId, UserId};
+
+    // --- fake ports (no DB / crypto needed) ---------------------------------
+
+    struct FakeUserRepo {
+        users: Vec<User>,
+    }
+    #[async_trait]
+    impl UserRepository for FakeUserRepo {
+        async fn find_by_id(&self, id: &UserId) -> DomainResult<Option<User>> {
+            Ok(self.users.iter().find(|u| u.id == *id).cloned())
+        }
+        async fn find_by_email(&self, email: &Email) -> DomainResult<Option<User>> {
+            Ok(self
+                .users
+                .iter()
+                .find(|u| u.email.0.eq_ignore_ascii_case(&email.0))
+                .cloned())
+        }
+        async fn insert(&self, _user: &User) -> DomainResult<()> {
+            Ok(())
+        }
+        async fn update(&self, _user: &User) -> DomainResult<()> {
+            Ok(())
+        }
+    }
+
+    struct FakeTenantRepo;
+    #[async_trait]
+    impl TenantRepository for FakeTenantRepo {
+        async fn find_by_id(&self, _id: &TenantId) -> DomainResult<Option<Tenant>> {
+            Ok(None)
+        }
+        async fn insert(&self, _tenant: &Tenant) -> DomainResult<()> {
+            Ok(())
+        }
+    }
+
+    struct FakeRoleRepo {
+        tenants: Vec<TenantId>,
+        roles: Vec<Role>,
+    }
+    #[async_trait]
+    impl RoleRepository for FakeRoleRepo {
+        async fn roles_for_user(&self, _u: &UserId, _t: &TenantId) -> DomainResult<Vec<Role>> {
+            Ok(self.roles.clone())
+        }
+        async fn permission_codes_for_role(&self, _role: &Role) -> DomainResult<Vec<String>> {
+            Ok(vec![])
+        }
+        async fn tenant_ids_for_user(&self, _u: &UserId) -> DomainResult<Vec<TenantId>> {
+            Ok(self.tenants.clone())
+        }
+    }
+
+    #[derive(Default)]
+    struct FakeRefreshRepo {
+        inserted: Mutex<Vec<RefreshToken>>,
+        revoked: Mutex<Vec<String>>,
+    }
+    #[async_trait]
+    impl RefreshTokenRepository for FakeRefreshRepo {
+        async fn insert(&self, token: &RefreshToken) -> DomainResult<()> {
+            self.inserted.lock().unwrap().push(token.clone());
+            Ok(())
+        }
+        async fn find_valid_by_hash(&self, hash: &str) -> DomainResult<Option<RefreshToken>> {
+            let revoked = self.revoked.lock().unwrap();
+            Ok(self
+                .inserted
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|t| t.token_hash == hash && !revoked.contains(&t.token_hash))
+                .cloned())
+        }
+        async fn revoke(&self, hash: &str) -> DomainResult<()> {
+            self.revoked.lock().unwrap().push(hash.to_string());
+            Ok(())
+        }
+    }
+
+    struct FakeTokenIssuer;
+    impl TokenIssuer for FakeTokenIssuer {
+        fn issue_access_token(
+            &self,
+            _u: &UserId,
+            _t: &TenantId,
+            roles: &[String],
+            _now: DateTime<Utc>,
+        ) -> DomainResult<IssuedToken> {
+            Ok(IssuedToken {
+                token: format!("access[{}]", roles.join(",")),
+                expires_in: 1800,
+            })
+        }
+        fn validate_access_token(&self, _token: &str) -> DomainResult<AccessTokenClaims> {
+            unimplemented!("not exercised by these tests")
+        }
+    }
+
+    struct FakePasswordHasher {
+        ok: bool,
+    }
+    impl PasswordHasher for FakePasswordHasher {
+        fn hash(&self, _raw: &str) -> DomainResult<String> {
+            Ok("hash".into())
+        }
+        fn verify(&self, _raw: &str, _hash: &str) -> DomainResult<bool> {
+            Ok(self.ok)
+        }
+    }
+
+    #[derive(Default)]
+    struct FakeRefreshHasher {
+        counter: AtomicU64,
+    }
+    impl RefreshTokenHasher for FakeRefreshHasher {
+        fn generate_opaque(&self) -> String {
+            format!("raw-{}", self.counter.fetch_add(1, Ordering::SeqCst))
+        }
+        fn hash(&self, raw: &str) -> String {
+            format!("h:{raw}")
+        }
+    }
+
+    struct FakeEvents;
+    #[async_trait]
+    impl EventPublisher for FakeEvents {
+        async fn publish(&self, _event: AuthEvent) -> DomainResult<()> {
+            Ok(())
+        }
+    }
+
+    struct StubClock;
+    impl Clock for StubClock {
+        fn now_utc(&self) -> DateTime<Utc> {
+            Utc::now()
+        }
+    }
+
+    // --- helpers ------------------------------------------------------------
+
+    fn user(active: bool) -> User {
+        User {
+            id: UserId(Uuid::now_v7()),
+            email: Email("a@b.com".into()),
+            display_name: "A".into(),
+            password_hash: "ph".into(),
+            is_active: active,
+            created_at: Utc::now(),
+        }
+    }
+
+    fn role(name: &str, tenant: &str) -> Role {
+        Role {
+            id: RoleId(Uuid::now_v7()),
+            tenant_id: TenantId(tenant.into()),
+            name: name.into(),
+            description: None,
+        }
+    }
+
+    fn build(
+        users: Vec<User>,
+        tenants: Vec<&str>,
+        roles: Vec<Role>,
+        pw_ok: bool,
+    ) -> (IdentityService, Arc<FakeRefreshRepo>) {
+        let refresh = Arc::new(FakeRefreshRepo::default());
+        let svc = IdentityService::new(
+            Arc::new(FakeUserRepo { users }),
+            Arc::new(FakeTenantRepo),
+            Arc::new(FakeRoleRepo {
+                tenants: tenants.into_iter().map(|t| TenantId(t.into())).collect(),
+                roles,
+            }),
+            refresh.clone(),
+            Arc::new(FakeTokenIssuer),
+            Arc::new(FakePasswordHasher { ok: pw_ok }),
+            Arc::new(FakeRefreshHasher::default()),
+            Arc::new(FakeEvents),
+            Arc::new(StubClock),
+            1_209_600,
+        );
+        (svc, refresh)
+    }
+
+    // --- tests --------------------------------------------------------------
+
+    #[tokio::test]
+    async fn login_wrong_password_is_unauthorized() {
+        let (svc, _) = build(
+            vec![user(true)],
+            vec!["t1"],
+            vec![role("OWNER", "t1")],
+            false,
+        );
+        let err = svc
+            .login(Email("a@b.com".into()), "pw".into(), None)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, DomainError::Unauthorized(_)));
+    }
+
+    #[tokio::test]
+    async fn login_inactive_user_is_unauthorized() {
+        let (svc, _) = build(vec![user(false)], vec!["t1"], vec![], true);
+        let err = svc
+            .login(Email("a@b.com".into()), "pw".into(), None)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, DomainError::Unauthorized(_)));
+    }
+
+    #[tokio::test]
+    async fn login_unknown_email_is_unauthorized() {
+        let (svc, _) = build(vec![], vec![], vec![], true);
+        let err = svc
+            .login(Email("x@y.com".into()), "pw".into(), None)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, DomainError::Unauthorized(_)));
+    }
+
+    #[tokio::test]
+    async fn login_multi_tenant_without_tenant_id_is_validation_error() {
+        let (svc, _) = build(vec![user(true)], vec!["t1", "t2"], vec![], true);
+        let err = svc
+            .login(Email("a@b.com".into()), "pw".into(), None)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, DomainError::Validation(_)));
+    }
+
+    #[tokio::test]
+    async fn login_happy_path_issues_access_and_refresh() {
+        let (svc, refresh) = build(
+            vec![user(true)],
+            vec!["t1"],
+            vec![role("OWNER", "t1"), role("ADMIN", "t1")],
+            true,
+        );
+        let out = svc
+            .login(Email("a@b.com".into()), "pw".into(), None)
+            .await
+            .unwrap();
+
+        assert_eq!(out.tenant_id.0, "t1");
+        assert_eq!(out.roles, vec!["OWNER".to_string(), "ADMIN".to_string()]);
+        assert!(out.access.token.contains("OWNER"));
+        assert_eq!(out.refresh_token, "raw-0");
+        let stored = refresh.inserted.lock().unwrap();
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].token_hash, "h:raw-0"); // only the hash is stored
+    }
+
+    #[tokio::test]
+    async fn refresh_rotates_and_revokes_old_token() {
+        let (svc, refresh) = build(
+            vec![user(true)],
+            vec!["t1"],
+            vec![role("OWNER", "t1")],
+            true,
+        );
+        let login = svc
+            .login(Email("a@b.com".into()), "pw".into(), None)
+            .await
+            .unwrap();
+
+        let out = svc.refresh(login.refresh_token.clone()).await.unwrap();
+
+        assert_eq!(out.refresh_token, "raw-1");
+        assert!(refresh
+            .revoked
+            .lock()
+            .unwrap()
+            .contains(&"h:raw-0".to_string()));
+        assert_eq!(refresh.inserted.lock().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn refresh_with_invalid_token_is_unauthorized() {
+        let (svc, _) = build(vec![user(true)], vec!["t1"], vec![], true);
+        let err = svc.refresh("nope".into()).await.unwrap_err();
+        assert!(matches!(err, DomainError::Unauthorized(_)));
+    }
+
+    #[tokio::test]
+    async fn logout_revokes_presented_token() {
+        let (svc, refresh) = build(vec![user(true)], vec!["t1"], vec![], true);
+        let login = svc
+            .login(Email("a@b.com".into()), "pw".into(), None)
+            .await
+            .unwrap();
+
+        svc.logout(login.refresh_token.clone()).await.unwrap();
+
+        assert!(refresh
+            .revoked
+            .lock()
+            .unwrap()
+            .contains(&"h:raw-0".to_string()));
+    }
 }
