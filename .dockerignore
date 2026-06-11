@@ -1,0 +1,7 @@
+# Keep the Docker build context small and secret-free.
+target/
+.git/
+.dev/
+.github/
+docs/
+**/*.md
