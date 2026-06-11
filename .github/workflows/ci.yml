@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Newer pushes to the same ref cancel in-flight runs.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: fmt + clippy + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pinned via rust-toolchain.toml (1.82.0); ensure rustfmt + clippy exist.
+      - name: Install Rust 1.82.0 (rustfmt, clippy)
+        run: |
+          rustup toolchain install 1.82.0 --profile minimal --component rustfmt --component clippy
+          rustc --version
+          cargo --version
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Format check
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (deny warnings)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # Tests are DB-free (domain logic with fakes + RS256 round-trip); no
+      # Postgres/NATS service needed. DB integration tests (Phase 1.3+) will be
+      # gated behind TEST_DATABASE_URL and run in a separate job with services.
+      - name: Test
+        run: cargo test --workspace
