@@ -44,8 +44,51 @@ jobs:
       - name: Clippy (deny warnings)
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-      # Tests are DB-free (domain logic with fakes + RS256 round-trip); no
-      # Postgres/NATS service needed. DB integration tests (Phase 1.3+) will be
-      # gated behind TEST_DATABASE_URL and run in a separate job with services.
+      # Unit tests are DB-free (domain logic with fakes + RS256 round-trip).
+      # DB-backed tests are gated behind TEST_DATABASE_URL and run in the
+      # `integration` job below.
       - name: Test
+        run: cargo test --workspace
+
+  integration:
+    name: integration (postgres)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: digicore
+          POSTGRES_PASSWORD: digicore
+          POSTGRES_DB: digicore
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U digicore"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust 1.82.0
+        run: |
+          rustup toolchain install 1.82.0 --profile minimal
+          rustc --version
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      # Runs the whole suite with TEST_DATABASE_URL set, so the DB-gated tests
+      # (e.g. reporting-svc sales-projection idempotency) execute against a real
+      # Postgres; DB-free tests simply re-run.
+      - name: Test (with database)
+        env:
+          TEST_DATABASE_URL: postgres://digicore:digicore@localhost:5432/digicore
         run: cargo test --workspace

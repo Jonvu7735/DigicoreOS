@@ -96,3 +96,61 @@ impl SalesProjection for PgSalesRepo {
         })
     }
 }
+
+#[cfg(test)]
+mod db_integration {
+    //! DB-backed tests. They run ONLY when `TEST_DATABASE_URL` is set (the CI
+    //! `integration` job, against a real Postgres); otherwise they skip, so the
+    //! default `cargo test` stays DB-free.
+
+    use std::str::FromStr;
+
+    use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+    use uuid::Uuid;
+
+    use super::*;
+    use crate::domain::sales::ports::SalesProjection;
+
+    async fn pool_or_skip() -> Option<PgPool> {
+        let url = std::env::var("TEST_DATABASE_URL").ok()?;
+        let opts = PgConnectOptions::from_str(&url)
+            .expect("valid TEST_DATABASE_URL")
+            .options([("search_path", "reporting_svc")]);
+        let pool = PgPoolOptions::new()
+            .max_connections(2)
+            .connect_with(opts)
+            .await
+            .expect("connect to test db");
+        crate::infra::db::postgres::run_migrations(&pool)
+            .await
+            .expect("apply migrations");
+        Some(pool)
+    }
+
+    #[tokio::test]
+    async fn order_paid_is_idempotent_and_rolls_up() {
+        let Some(pool) = pool_or_skip().await else {
+            return; // no TEST_DATABASE_URL — skip
+        };
+        let repo = PgSalesRepo::new(pool);
+        // Unique tenant per run so repeated CI runs don't accumulate.
+        let tenant = TenantId(format!("it-{}", Uuid::now_v7()));
+        let event_id = Uuid::now_v7();
+
+        repo.apply_order_paid(event_id, &tenant, 2500)
+            .await
+            .unwrap();
+        // Re-deliver the SAME event_id (at-least-once): must NOT double-count.
+        repo.apply_order_paid(event_id, &tenant, 2500)
+            .await
+            .unwrap();
+        // A distinct event adds to the rollup.
+        repo.apply_order_paid(Uuid::now_v7(), &tenant, 500)
+            .await
+            .unwrap();
+
+        let summary = repo.get_summary(&tenant).await.unwrap();
+        assert_eq!(summary.payment_count, 2);
+        assert_eq!(summary.total_paid.0, 3000);
+    }
+}
