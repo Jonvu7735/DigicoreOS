@@ -21,6 +21,7 @@ impl PasswordHasher for Argon2PasswordHasher {
         Ok(hash.to_string())
     }
 
+    #[tracing::instrument(skip_all, name = "verify_password")]
     fn verify(&self, raw_password: &str, password_hash: &str) -> DomainResult<bool> {
         let parsed = PasswordHash::new(password_hash)
             .map_err(|e| DomainError::Internal(format!("stored password hash invalid: {e}")))?;

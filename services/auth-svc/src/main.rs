@@ -25,7 +25,8 @@ async fn main() -> anyhow::Result<()> {
     let config = bootstrap::config::AppConfig::from_env().context("failed to load AppConfig")?;
 
     // 2. Observability first, so wiring failures are visible (OBSERVABILITY.md).
-    utils::logging::init(&config);
+    //    Hold the guard until `main` returns so OTLP spans are flushed on exit.
+    let _tracing_guard = utils::logging::init(&config);
 
     // 3. Dependency wiring (bootstrap/wiring.rs).
     let state = bootstrap::wiring::build_app_state(config)
