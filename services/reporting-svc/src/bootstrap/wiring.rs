@@ -14,9 +14,13 @@ use crate::bootstrap::config::AppConfig;
 use crate::domain::ingest::ingestor::EventIngestor;
 use crate::domain::ingest::ports::InboundEventHandler;
 use crate::domain::sales::ports::SalesProjection;
+use crate::domain::shared::types::Clock;
+use crate::domain::snapshots::services::SnapshotService;
 use crate::infra;
 use crate::infra::db::sales_repo_pg::PgSalesRepo;
+use crate::infra::db::snapshot_repo_pg::PgSnapshotRepo;
 use crate::infra::messaging::consumer::{connect_consumer, NatsConsumer};
+use crate::infra::time::clock::SystemClock;
 
 /// Shared application state injected into every handler.
 #[derive(Clone)]
@@ -28,6 +32,7 @@ pub struct AppState {
     pub verifier: Arc<JwtVerifier>,
     /// Sales read model (queried by the dashboard, written by the consumer).
     pub sales: Arc<dyn SalesProjection>,
+    pub snapshots: Arc<SnapshotService>,
 }
 
 /// Construct infrastructure adapters and bind them to domain ports.
@@ -49,6 +54,13 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
     let sales: Arc<dyn SalesProjection> = Arc::new(PgSalesRepo::new(db.clone()));
     let ingestor: Arc<dyn InboundEventHandler> = Arc::new(EventIngestor::new(sales.clone()));
 
+    let clock: Arc<dyn Clock> = Arc::new(SystemClock);
+    let snapshots = Arc::new(SnapshotService::new(
+        Arc::new(PgSnapshotRepo::new(db.clone())),
+        sales.clone(),
+        clock,
+    ));
+
     // Outbox relay (DATA-STRATEGY.md §3.2): reporting publishes ReportSnapshotCreated.
     let outbox_repo: Arc<dyn OutboxRepository> = Arc::new(PgOutboxRepo::new(db.clone()));
     if let Some(publisher) = connect_publisher(config.nats_url.as_deref()).await {
@@ -68,6 +80,7 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
         metrics,
         verifier,
         sales,
+        snapshots,
     })
 }
 

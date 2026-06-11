@@ -2,6 +2,7 @@
 
 pub mod postgres;
 pub mod sales_repo_pg;
+pub mod snapshot_repo_pg;
 
 use crate::domain::shared::error::DomainError;
 

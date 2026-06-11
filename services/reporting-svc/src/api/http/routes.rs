@@ -18,7 +18,12 @@ pub fn router(state: AppState) -> Router {
         .route("/health", get(handlers::health::health))
         .route("/ready", get(handlers::health::ready))
         // --- dashboards (RBAC-guarded, ARCHITECTURE.md §3.5) ---
-        .route("/sales-summary", get(handlers::sales::summary));
+        .route("/sales-summary", get(handlers::sales::summary))
+        // --- snapshots (capture a read model + emit ReportSnapshotCreated) ---
+        .route(
+            "/snapshots",
+            get(handlers::snapshots::list).post(handlers::snapshots::create),
+        );
     // Further read-model slices (overview, crm-funnel, hrm-summary, …) add
     // their RBAC-guarded routes here as they land.
 

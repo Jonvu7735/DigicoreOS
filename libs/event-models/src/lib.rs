@@ -17,5 +17,6 @@ pub mod auth;
 pub mod crm;
 pub mod erp;
 pub mod hrm;
+pub mod reporting;
 
 pub use header::EventHeader;

@@ -3,3 +3,4 @@
 pub mod ingest;
 pub mod sales;
 pub mod shared;
+pub mod snapshots;
