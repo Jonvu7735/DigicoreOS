@@ -3,7 +3,7 @@
 //! Business routes live under the gateway prefix `/api/v1/crm/...`
 //! (ARCHITECTURE.md §3.3). `/metrics` is exposed at the root for Prometheus.
 
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::Router;
 use tower_http::trace::TraceLayer;
 
@@ -25,8 +25,18 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/customers/{customer_id}",
             get(handlers::customers::get).patch(handlers::customers::update),
+        )
+        // --- deals / sales pipeline (RBAC-guarded, ARCHITECTURE.md §3.3) ---
+        .route(
+            "/deals",
+            get(handlers::deals::list).post(handlers::deals::create),
+        )
+        .route("/deals/{deal_id}", get(handlers::deals::get))
+        .route(
+            "/deals/{deal_id}/stage",
+            post(handlers::deals::change_stage),
         );
-    // Further slices (contacts, deals, activities) add their routes here.
+    // Further slices (contacts, activities) add their routes here.
 
     Router::new()
         .nest("/api/v1/crm", crm_routes)
