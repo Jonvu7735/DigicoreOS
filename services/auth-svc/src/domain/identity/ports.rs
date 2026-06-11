@@ -38,6 +38,7 @@ pub trait UserRepository: Send + Sync {
 pub trait TenantRepository: Send + Sync {
     async fn find_by_id(&self, id: &TenantId) -> DomainResult<Option<Tenant>>;
     async fn insert(&self, tenant: &Tenant) -> DomainResult<()>;
+    async fn update(&self, tenant: &Tenant) -> DomainResult<()>;
 }
 
 #[async_trait]

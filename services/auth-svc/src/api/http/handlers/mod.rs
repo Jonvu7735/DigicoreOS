@@ -4,4 +4,5 @@
 pub mod auth;
 pub mod health;
 pub mod metrics;
+pub mod tenants;
 pub mod users;

@@ -42,9 +42,12 @@ pub fn router(state: AppState) -> Router {
             get(handlers::users::get)
                 .patch(handlers::users::update)
                 .delete(handlers::users::deactivate),
+        )
+        // --- tenant management (own tenant, RBAC-guarded, API-GATEWAY.md §3.3) ---
+        .route(
+            "/tenants/{tenant_id}",
+            get(handlers::tenants::get).patch(handlers::tenants::update),
         );
-    // TODO(Phase 1.3 cont.): tenant management /tenants/... (super-admin /
-    // auth_tenant_* guarded, API-GATEWAY.md §3.3).
 
     Router::new()
         .nest("/api/v1/auth", auth_routes)

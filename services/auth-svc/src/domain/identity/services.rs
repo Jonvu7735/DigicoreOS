@@ -356,6 +356,40 @@ impl IdentityService {
         Ok(UserView { user, roles })
     }
 
+    /// Admin: read a tenant (auth_tenant_read; handler enforces own-tenant scope).
+    pub async fn get_tenant(&self, tenant_id: &TenantId) -> DomainResult<Tenant> {
+        self.tenant_repo
+            .find_by_id(tenant_id)
+            .await?
+            .ok_or_else(|| DomainError::NotFound(format!("tenant {tenant_id}")))
+    }
+
+    /// Admin: update a tenant's name / plan / active flag (auth_tenant_update_plan).
+    pub async fn update_tenant(
+        &self,
+        tenant_id: &TenantId,
+        name: Option<String>,
+        plan: Option<String>,
+        is_active: Option<bool>,
+    ) -> DomainResult<Tenant> {
+        let mut tenant = self.get_tenant(tenant_id).await?;
+        if let Some(name) = name {
+            let name = name.trim().to_string();
+            if name.is_empty() {
+                return Err(DomainError::Validation("name cannot be empty".into()));
+            }
+            tenant.name = name;
+        }
+        if let Some(plan) = plan {
+            tenant.plan = plan;
+        }
+        if let Some(active) = is_active {
+            tenant.is_active = active;
+        }
+        self.tenant_repo.update(&tenant).await?;
+        Ok(tenant)
+    }
+
     // --- internals -----------------------------------------------------------
 
     /// Issue an access token + a fresh stored refresh token for `(user, tenant)`.
@@ -559,6 +593,29 @@ mod tests {
             Ok(None)
         }
         async fn insert(&self, _tenant: &Tenant) -> DomainResult<()> {
+            Ok(())
+        }
+        async fn update(&self, _tenant: &Tenant) -> DomainResult<()> {
+            Ok(())
+        }
+    }
+
+    /// Tenant repo that holds one tenant, for tenant get/update tests.
+    #[derive(Default)]
+    struct RecordingTenantRepo {
+        tenant: Mutex<Option<Tenant>>,
+    }
+    #[async_trait]
+    impl TenantRepository for RecordingTenantRepo {
+        async fn find_by_id(&self, _id: &TenantId) -> DomainResult<Option<Tenant>> {
+            Ok(self.tenant.lock().unwrap().clone())
+        }
+        async fn insert(&self, tenant: &Tenant) -> DomainResult<()> {
+            *self.tenant.lock().unwrap() = Some(tenant.clone());
+            Ok(())
+        }
+        async fn update(&self, tenant: &Tenant) -> DomainResult<()> {
+            *self.tenant.lock().unwrap() = Some(tenant.clone());
             Ok(())
         }
     }
@@ -1074,5 +1131,67 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(err, DomainError::NotFound(_)));
+    }
+
+    fn service_with_tenant(tenant: Option<Tenant>) -> IdentityService {
+        let tenant_repo = RecordingTenantRepo::default();
+        *tenant_repo.tenant.lock().unwrap() = tenant;
+        IdentityService::new(
+            Arc::new(FakeUserRepo { users: vec![] }),
+            Arc::new(tenant_repo),
+            Arc::new(FakeRoleRepo {
+                tenants: vec![],
+                roles: vec![],
+            }),
+            Arc::new(FakeRefreshRepo::default()),
+            Arc::new(FakeProvisioningRepo::default()),
+            Arc::new(FakeTokenIssuer),
+            Arc::new(FakePasswordHasher { ok: true }),
+            Arc::new(FakeRefreshHasher::default()),
+            Arc::new(FakeEvents),
+            Arc::new(StubClock),
+            1_209_600,
+        )
+    }
+
+    fn tenant(name: &str) -> Tenant {
+        Tenant {
+            id: TenantId("t1".into()),
+            name: name.into(),
+            plan: "free".into(),
+            is_active: true,
+            created_at: Utc::now(),
+        }
+    }
+
+    #[tokio::test]
+    async fn get_tenant_returns_existing() {
+        let svc = service_with_tenant(Some(tenant("Acme")));
+        let got = svc.get_tenant(&TenantId("t1".into())).await.unwrap();
+        assert_eq!(got.name, "Acme");
+    }
+
+    #[tokio::test]
+    async fn get_tenant_missing_is_not_found() {
+        let svc = service_with_tenant(None);
+        let err = svc.get_tenant(&TenantId("t1".into())).await.unwrap_err();
+        assert!(matches!(err, DomainError::NotFound(_)));
+    }
+
+    #[tokio::test]
+    async fn update_tenant_changes_fields() {
+        let svc = service_with_tenant(Some(tenant("Acme")));
+        let updated = svc
+            .update_tenant(
+                &TenantId("t1".into()),
+                Some("NewName".into()),
+                Some("pro".into()),
+                Some(false),
+            )
+            .await
+            .unwrap();
+        assert_eq!(updated.name, "NewName");
+        assert_eq!(updated.plan, "pro");
+        assert!(!updated.is_active);
     }
 }

@@ -99,3 +99,25 @@ pub struct RefreshResponse {
 pub struct LogoutRequest {
     pub refresh_token: String,
 }
+
+/// Tenant detail response (`GET`/`PATCH /api/v1/auth/tenants/{id}`).
+#[derive(Debug, Serialize)]
+pub struct TenantResponse {
+    pub id: String,
+    pub name: String,
+    pub plan: String,
+    pub is_active: bool,
+    /// RFC 3339 timestamp.
+    pub created_at: String,
+}
+
+/// `PATCH /api/v1/auth/tenants/{id}` – partial update.
+#[derive(Debug, Deserialize)]
+pub struct UpdateTenantRequest {
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub plan: Option<String>,
+    #[serde(default)]
+    pub is_active: Option<bool>,
+}

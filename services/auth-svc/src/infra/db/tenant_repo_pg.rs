@@ -46,8 +46,6 @@ impl TenantRepository for PgTenantRepo {
     }
 
     async fn insert(&self, tenant: &Tenant) -> DomainResult<()> {
-        // Phase 1.3/1.5: create_tenant writes a `TenantCreated` outbox row in the
-        // same transaction; this plain insert is used by that use-case and tests.
         sqlx::query(
             "INSERT INTO tenants (id, name, plan, is_active, created_at) \
              VALUES ($1, $2, $3, $4, $5)",
@@ -60,6 +58,19 @@ impl TenantRepository for PgTenantRepo {
         .execute(&self.pool)
         .await
         .map_err(map_write_err)?;
+        Ok(())
+    }
+
+    async fn update(&self, tenant: &Tenant) -> DomainResult<()> {
+        // `created_at` is immutable; the caller has already verified existence.
+        sqlx::query("UPDATE tenants SET name = $2, plan = $3, is_active = $4 WHERE id = $1")
+            .bind(&tenant.id.0)
+            .bind(&tenant.name)
+            .bind(&tenant.plan)
+            .bind(tenant.is_active)
+            .execute(&self.pool)
+            .await
+            .map_err(map_write_err)?;
         Ok(())
     }
 }
