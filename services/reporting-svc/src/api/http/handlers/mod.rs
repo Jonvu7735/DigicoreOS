@@ -3,3 +3,4 @@
 pub mod health;
 pub mod metrics;
 pub mod sales;
+pub mod snapshots;
