@@ -92,3 +92,24 @@ jobs:
         env:
           TEST_DATABASE_URL: postgres://digicore:digicore@localhost:5432/digicore
         run: cargo test --workspace
+
+  supply-chain:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    # cargo-deny shells out to `cargo metadata`, which parses EVERY platform's
+    # manifests (e.g. the Apple-only security-framework) — some now require
+    # Cargo's `edition2024`, unsupported by our MSRV 1.82. This job only analyses
+    # the dependency graph (it never builds our code, so MSRV is unaffected), so
+    # use stable cargo for it. RUSTUP_TOOLCHAIN overrides rust-toolchain.toml.
+    env:
+      RUSTUP_TOOLCHAIN: stable
+    steps:
+      - uses: actions/checkout@v4
+      # Scans the dependency graph for RustSec advisories, banned/wildcard deps,
+      # and untrusted sources (deny.toml). Licenses are checked separately once
+      # an allow-list is curated. `arguments: ""` overrides the default
+      # `--all-features` so we analyse the graph as the project actually builds.
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories bans sources
+          arguments: ""

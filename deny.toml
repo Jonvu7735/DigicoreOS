@@ -1,0 +1,64 @@
+# Supply-chain policy for `cargo deny`. The CI `cargo-deny` job runs:
+#   cargo deny check advisories bans sources
+#
+# The `licenses` check is intentionally NOT enabled yet: it needs a curated
+# allow-list (e.g. `ring` ships a non-SPDX license-file that requires an
+# exception). Run `cargo deny check licenses` locally to build that list, then
+# add a `[licenses]` section and include it in the CI command.
+
+[advisories]
+# RustSec advisory DB (github.com/RustSec/advisory-db). Security vulnerabilities
+# fail the check — that is the point. Yanked crates only warn.
+yanked = "warn"
+
+# Accepted advisories. Each entry is assessed-and-documented risk, not a blanket
+# mute: every one below is either unreachable in how we actually use the crate
+# or has no upstream fix. Re-audit when bumping `async-nats` or the MSRV (the two
+# things gating most of these fixes).
+ignore = [
+    # `rsa` — Marvin timing sidechannel (key recovery). No upstream fix exists.
+    # `rsa` is a DEV-dependency only: it generates ephemeral throwaway RSA key
+    # pairs for the RS256 token round-trip unit tests, so the suite ships no
+    # committed key material (SECURITY.md). The sidechannel requires an attacker
+    # observing signing timing of a real key over a network — irrelevant to
+    # local, single-use test keys that protect nothing.
+    { id = "RUSTSEC-2023-0071", reason = "rsa is a dev-only dep for ephemeral RS256 test keys; timing sidechannel does not apply to throwaway test keys, and no fix is available" },
+
+    # `time` 0.3.x — DoS via stack exhaustion when parsing attacker-controlled
+    # RFC 2822 input. We never parse untrusted RFC 2822 dates; `time` is a
+    # transitive dep (async-nats, jsonwebtoken -> simple_asn1) pinned to =0.3.36
+    # as an MSRV-1.82 guard. Fix is >=0.3.47 — revisit when the toolchain moves.
+    { id = "RUSTSEC-2026-0009", reason = "time is transitive and we never parse untrusted RFC 2822 input; pinned at 0.3.36 for MSRV 1.82, fix is >=0.3.47" },
+
+    # `rustls-pemfile` 2.2.0 — unmaintained (archived; folded into
+    # rustls-pki-types). Pulled transitively by async-nats -> rustls-native-certs.
+    # Not a vulnerability; cleared when async-nats is bumped.
+    { id = "RUSTSEC-2025-0134", reason = "unmaintained, transitive via async-nats; no action until async-nats is bumped" },
+
+    # `rustls-webpki` 0.102.8 — four cert/CRL validation advisories. async-nats
+    # 0.38 pins this old line directly; the PATCHED 0.103.13 is already in our
+    # tree (via rustls 0.23.40). We use async-nats purely as a client to our own
+    # internal NATS broker and never validate untrusted certificates or CRLs, so
+    # none of these is reachable: 0049/0104 require CRL usage (we use none),
+    # 0098/0099 are reachable only after signature verification and require CA
+    # misissuance. Cleared by bumping async-nats to a line that uses webpki 0.103.
+    { id = "RUSTSEC-2026-0049", reason = "rustls-webpki via async-nats; we do no CRL revocation checking of untrusted certs" },
+    { id = "RUSTSEC-2026-0098", reason = "rustls-webpki via async-nats; URI name constraints unreachable (requires misissuance, post-signature-verification)" },
+    { id = "RUSTSEC-2026-0099", reason = "rustls-webpki via async-nats; wildcard name constraints unreachable (requires misissuance, post-signature-verification)" },
+    { id = "RUSTSEC-2026-0104", reason = "rustls-webpki via async-nats; CRL parse panic unreachable — we use no CRLs" },
+]
+
+[bans]
+# Duplicate transitive versions are common and low-signal -> warn, don't block.
+multiple-versions = "warn"
+# Every published dependency is pinned (no "*"); a wildcard creeping in is an error.
+wildcards = "deny"
+# ...but our own intra-workspace crates (libs/*) are path dependencies with no
+# version field, which Cargo treats as `*`. That is correct and expected for
+# private, unpublished crates, so exempt path deps from the wildcard rule.
+allow-wildcard-paths = true
+
+[sources]
+# Only crates.io — no ad-hoc registries or git dependencies.
+unknown-registry = "deny"
+unknown-git = "deny"
