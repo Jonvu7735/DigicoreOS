@@ -1,0 +1,15 @@
+# Per-tenant application-layer rate limiting (SECURITY.md §5.2). The edge limits
+# per IP; the tenant id only exists inside the verified JWT, so per-tenant limiting
+# lives here, shared by every service.
+[package]
+name = "platform-ratelimit"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+platform-auth = { workspace = true }
+axum = { workspace = true }
+serde_json = { workspace = true }
+metrics = { workspace = true }

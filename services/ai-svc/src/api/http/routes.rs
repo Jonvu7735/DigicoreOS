@@ -12,6 +12,9 @@ use crate::bootstrap::wiring::AppState;
 
 pub fn router(state: AppState) -> Router {
     let service_name = state.config.service_name;
+    // Per-tenant rate limiter (SECURITY.md §5.2), reuses the JWT verifier.
+    let limiter =
+        platform_ratelimit::TenantRateLimiter::from_env(state.verifier.clone(), service_name);
     let env = state.config.env.clone();
 
     let ai_routes = Router::new()
@@ -26,6 +29,11 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .nest("/api/v1/ai", ai_routes)
         .route("/metrics", get(handlers::metrics::render))
+        // Per-tenant rate limiting (SECURITY.md §5.2).
+        .layer(axum::middleware::from_fn_with_state(
+            limiter,
+            platform_ratelimit::tenant_rate_limit,
+        ))
         // Standard HTTP metrics (OBSERVABILITY.md §4.3), shared across services.
         .layer(axum::middleware::from_fn_with_state(
             service_name,
