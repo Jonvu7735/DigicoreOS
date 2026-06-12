@@ -261,3 +261,14 @@ jobs:
 
       - name: Typecheck + build
         run: npm run build
+
+  compose:
+    name: compose (config)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Validate the full-stack demo compose (6 core + 2 vertical services + the
+      # web UI, with build args). `config` parses/renders without the daemon, so
+      # this catches compose/service-wiring errors without building images.
+      - name: Validate docker-compose (full stack)
+        run: docker compose -f deploy/docker-compose.dev.yml --profile services config -q
