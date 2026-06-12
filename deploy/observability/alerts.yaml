@@ -51,3 +51,19 @@ spec:
           annotations:
             summary: "Event consumers are failing"
             description: "events_consumed_failed_total is increasing over 10m — a handler keeps erroring."
+    - name: digicore.http
+      rules:
+        - alert: DigicoreHighHttpErrorRate
+          expr: sum by (service) (rate(http_requests_total{status=~"5.."}[5m])) / clamp_min(sum by (service) (rate(http_requests_total[5m])), 1) > 0.05
+          for: 10m
+          labels: { severity: warning }
+          annotations:
+            summary: "{{ $labels.service }} 5xx error rate >5%"
+            description: "More than 5% of {{ $labels.service }} responses are 5xx over 10m."
+        - alert: DigicoreHighHttpLatencyP95
+          expr: histogram_quantile(0.95, sum by (service, le) (rate(http_request_duration_seconds_bucket[5m]))) > 1
+          for: 10m
+          labels: { severity: warning }
+          annotations:
+            summary: "{{ $labels.service }} p95 latency >1s"
+            description: "{{ $labels.service }} p95 request latency exceeds 1s over 10m."

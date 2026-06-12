@@ -4,11 +4,7 @@
 //! `/api/v1/auth/...` (API-GATEWAY.md). `/metrics` is exposed at the root for
 //! Prometheus scraping only (internal, never routed through the gateway).
 
-use std::time::Instant;
-
-use axum::extract::{MatchedPath, Request};
-use axum::middleware::{self, Next};
-use axum::response::Response;
+use axum::middleware;
 use axum::routing::{get, post};
 use axum::Router;
 use tower_http::trace::TraceLayer;
@@ -52,7 +48,12 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .nest("/api/v1/auth", auth_routes)
         .route("/metrics", get(handlers::metrics::render))
-        .layer(middleware::from_fn(track_http_metrics))
+        // Standard HTTP metrics (OBSERVABILITY.md §4.3), shared across services
+        // via platform-observability (was a local copy here).
+        .layer(middleware::from_fn_with_state(
+            service_name,
+            platform_observability::track_http_metrics,
+        ))
         .layer(TraceLayer::new_for_http().make_span_with(
             move |request: &axum::http::Request<_>| {
                 // Root span `http.server` (OBSERVABILITY.md §5.4).
@@ -79,39 +80,4 @@ pub fn router(state: AppState) -> Router {
             },
         ))
         .with_state(state)
-}
-
-/// Records `http_requests_total` and `http_request_duration_seconds` for every
-/// request (OBSERVABILITY.md §4.3). Phase 1.2 routes are static; the `path`
-/// label uses `MatchedPath` when present, else the raw path (switch fully to
-/// `MatchedPath` in Phase 1.3 when routes gain `{id}` params).
-async fn track_http_metrics(req: Request, next: Next) -> Response {
-    let method = req.method().clone();
-    let path = req
-        .extensions()
-        .get::<MatchedPath>()
-        .map(|m| m.as_str().to_owned())
-        .unwrap_or_else(|| req.uri().path().to_owned());
-
-    let start = Instant::now();
-    let response = next.run(req).await;
-    let status = response.status().as_u16().to_string();
-
-    metrics::histogram!(
-        "http_request_duration_seconds",
-        "service" => "auth-svc",
-        "method" => method.to_string(),
-        "path" => path.clone(),
-    )
-    .record(start.elapsed().as_secs_f64());
-    metrics::counter!(
-        "http_requests_total",
-        "service" => "auth-svc",
-        "method" => method.to_string(),
-        "path" => path,
-        "status" => status,
-    )
-    .increment(1);
-
-    response
 }
