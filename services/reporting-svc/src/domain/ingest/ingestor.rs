@@ -4,13 +4,15 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use event_models::crm::{subjects as crm_subjects, CustomerCreated};
+use event_models::crm::{subjects as crm_subjects, CustomerCreated, DealCreated, DealStageChanged};
 use event_models::erp::{subjects, OrderCreated, OrderPaid};
 use event_models::hrm::{subjects as hrm_subjects, EmployeeHired};
 use platform_events::{HandlerError, HandlerResult, InboundEventHandler};
 
 use crate::domain::customers::entities::NewCustomerFact;
 use crate::domain::customers::ports::CustomersProjection;
+use crate::domain::deals::entities::{DealStageChange, NewDealFact};
+use crate::domain::deals::ports::DealsProjection;
 use crate::domain::employees::entities::NewEmployeeFact;
 use crate::domain::employees::ports::EmployeesProjection;
 use crate::domain::orders::entities::NewOrderFact;
@@ -23,6 +25,7 @@ pub struct EventIngestor {
     orders: Arc<dyn OrdersProjection>,
     customers: Arc<dyn CustomersProjection>,
     employees: Arc<dyn EmployeesProjection>,
+    deals: Arc<dyn DealsProjection>,
 }
 
 impl EventIngestor {
@@ -31,12 +34,14 @@ impl EventIngestor {
         orders: Arc<dyn OrdersProjection>,
         customers: Arc<dyn CustomersProjection>,
         employees: Arc<dyn EmployeesProjection>,
+        deals: Arc<dyn DealsProjection>,
     ) -> Self {
         Self {
             sales,
             orders,
             customers,
             employees,
+            deals,
         }
     }
 }
@@ -97,6 +102,32 @@ impl InboundEventHandler for EventIngestor {
                 })
                 .await
                 .map_err(|e| HandlerError(e.to_string()))?;
+        } else if subject == crm_subjects::DEAL_CREATED {
+            let event: DealCreated = serde_json::from_slice(payload)
+                .map_err(|e| HandlerError(format!("malformed DealCreated payload: {e}")))?;
+            self.deals
+                .apply_deal_created(&NewDealFact {
+                    deal_id: event.deal_id,
+                    tenant_id: TenantId(event.header.tenant_id),
+                    customer_id: event.customer_id,
+                    amount_estimate: event.amount_estimate,
+                    stage: event.stage,
+                    occurred_at: event.header.occurred_at,
+                })
+                .await
+                .map_err(|e| HandlerError(e.to_string()))?;
+        } else if subject == crm_subjects::DEAL_STAGE_CHANGED {
+            let event: DealStageChanged = serde_json::from_slice(payload)
+                .map_err(|e| HandlerError(format!("malformed DealStageChanged payload: {e}")))?;
+            self.deals
+                .apply_deal_stage_changed(&DealStageChange {
+                    deal_id: event.deal_id,
+                    tenant_id: TenantId(event.header.tenant_id),
+                    new_stage: event.new_stage,
+                    occurred_at: event.header.occurred_at,
+                })
+                .await
+                .map_err(|e| HandlerError(e.to_string()))?;
         }
         // Other subjects are not yet projected; ignored so the consumer keeps
         // draining the bus.
@@ -115,6 +146,7 @@ mod tests {
 
     use super::*;
     use crate::domain::customers::entities::ReportedCustomer;
+    use crate::domain::deals::entities::StageCount;
     use crate::domain::employees::entities::ReportedEmployee;
     use crate::domain::orders::entities::{OrdersOverview, ReportedOrder};
     use crate::domain::sales::entities::SalesSummary;
@@ -225,12 +257,39 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct FakeDeals {
+        created: Mutex<Vec<(String, String)>>,
+        changed: Mutex<Vec<(String, String)>>,
+    }
+    #[async_trait]
+    impl DealsProjection for FakeDeals {
+        async fn apply_deal_created(&self, fact: &NewDealFact) -> DomainResult<()> {
+            self.created
+                .lock()
+                .unwrap()
+                .push((fact.deal_id.clone(), fact.stage.clone()));
+            Ok(())
+        }
+        async fn apply_deal_stage_changed(&self, change: &DealStageChange) -> DomainResult<()> {
+            self.changed
+                .lock()
+                .unwrap()
+                .push((change.deal_id.clone(), change.new_stage.clone()));
+            Ok(())
+        }
+        async fn funnel(&self, _t: &TenantId) -> DomainResult<Vec<StageCount>> {
+            Ok(vec![])
+        }
+    }
+
     type Fakes = (
         EventIngestor,
         Arc<FakeSales>,
         Arc<FakeOrders>,
         Arc<FakeCustomers>,
         Arc<FakeEmployees>,
+        Arc<FakeDeals>,
     );
 
     fn ingestor() -> Fakes {
@@ -238,17 +297,20 @@ mod tests {
         let orders = Arc::new(FakeOrders::default());
         let customers = Arc::new(FakeCustomers::default());
         let employees = Arc::new(FakeEmployees::default());
+        let deals = Arc::new(FakeDeals::default());
         (
             EventIngestor::new(
                 sales.clone(),
                 orders.clone(),
                 customers.clone(),
                 employees.clone(),
+                deals.clone(),
             ),
             sales,
             orders,
             customers,
             employees,
+            deals,
         )
     }
 
@@ -333,9 +395,48 @@ mod tests {
         event.payload_json().unwrap()
     }
 
+    fn deal_created_bytes(tenant: &str, deal_id: &str, stage: &str) -> Vec<u8> {
+        let header = EventHeader::new(
+            Uuid::now_v7(),
+            Utc::now(),
+            tenant.to_string(),
+            "deal",
+            deal_id.to_string(),
+            "DealCreated",
+            1,
+        );
+        let event = event_models::crm::CrmEvent::DealCreated(DealCreated {
+            header,
+            deal_id: deal_id.into(),
+            customer_id: "c1".into(),
+            amount_estimate: 1000,
+            stage: stage.into(),
+        });
+        event.payload_json().unwrap()
+    }
+
+    fn deal_stage_changed_bytes(tenant: &str, deal_id: &str, new_stage: &str) -> Vec<u8> {
+        let header = EventHeader::new(
+            Uuid::now_v7(),
+            Utc::now(),
+            tenant.to_string(),
+            "deal",
+            deal_id.to_string(),
+            "DealStageChanged",
+            1,
+        );
+        let event = event_models::crm::CrmEvent::DealStageChanged(DealStageChanged {
+            header,
+            deal_id: deal_id.into(),
+            old_stage: "LEAD".into(),
+            new_stage: new_stage.into(),
+        });
+        event.payload_json().unwrap()
+    }
+
     #[tokio::test]
     async fn applies_order_paid_to_sales() {
-        let (ingestor, sales, _orders, _customers, _employees) = ingestor();
+        let (ingestor, sales, _orders, _customers, _employees, _deals) = ingestor();
         let (event_id, bytes) = order_paid_bytes("t1", 4200);
 
         ingestor.handle(subjects::ORDER_PAID, &bytes).await.unwrap();
@@ -347,7 +448,7 @@ mod tests {
 
     #[tokio::test]
     async fn applies_order_created_to_orders() {
-        let (ingestor, _sales, orders, _customers, _employees) = ingestor();
+        let (ingestor, _sales, orders, _customers, _employees, _deals) = ingestor();
 
         ingestor
             .handle(
@@ -364,7 +465,7 @@ mod tests {
 
     #[tokio::test]
     async fn applies_customer_created_to_customers() {
-        let (ingestor, _sales, _orders, customers, _employees) = ingestor();
+        let (ingestor, _sales, _orders, customers, _employees, _deals) = ingestor();
 
         ingestor
             .handle(
@@ -381,7 +482,7 @@ mod tests {
 
     #[tokio::test]
     async fn applies_employee_hired_to_employees() {
-        let (ingestor, _sales, _orders, _customers, employees) = ingestor();
+        let (ingestor, _sales, _orders, _customers, employees, _deals) = ingestor();
 
         ingestor
             .handle(
@@ -397,8 +498,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn applies_deal_events_to_deals() {
+        let (ingestor, _sales, _orders, _customers, _employees, deals) = ingestor();
+
+        ingestor
+            .handle(
+                crm_subjects::DEAL_CREATED,
+                &deal_created_bytes("t1", "d9", "LEAD"),
+            )
+            .await
+            .unwrap();
+        ingestor
+            .handle(
+                crm_subjects::DEAL_STAGE_CHANGED,
+                &deal_stage_changed_bytes("t1", "d9", "WON"),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            *deals.created.lock().unwrap(),
+            vec![("d9".to_string(), "LEAD".to_string())]
+        );
+        assert_eq!(
+            *deals.changed.lock().unwrap(),
+            vec![("d9".to_string(), "WON".to_string())]
+        );
+    }
+
+    #[tokio::test]
     async fn ignores_unprojected_subjects() {
-        let (ingestor, sales, orders, customers, employees) = ingestor();
+        let (ingestor, sales, orders, customers, employees, deals) = ingestor();
 
         // A subject we don't project yet is a no-op (not an error).
         ingestor
@@ -412,11 +542,13 @@ mod tests {
         assert!(orders.applied.lock().unwrap().is_empty());
         assert!(customers.applied.lock().unwrap().is_empty());
         assert!(employees.applied.lock().unwrap().is_empty());
+        assert!(deals.created.lock().unwrap().is_empty());
+        assert!(deals.changed.lock().unwrap().is_empty());
     }
 
     #[tokio::test]
     async fn rejects_malformed_payload() {
-        let (ingestor, _s, _o, _c, _e) = ingestor();
+        let (ingestor, _s, _o, _c, _e, _d) = ingestor();
         let err = ingestor
             .handle(subjects::ORDER_PAID, b"not json")
             .await
