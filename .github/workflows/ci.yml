@@ -145,6 +145,37 @@ jobs:
       - name: Test
         run: cargo test --manifest-path verticals/trade-export-svc/Cargo.toml
 
+  vertical-retail:
+    name: vertical (retail)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust 1.96.0 (rustfmt, clippy)
+        run: |
+          rustup toolchain install 1.96.0 --profile minimal --component rustfmt --component clippy
+          rustc --version
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            verticals/retail-svc/target
+          key: ${{ runner.os }}-vertical-retail-${{ hashFiles('verticals/retail-svc/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-vertical-retail-
+
+      - name: Format check
+        run: cargo fmt --manifest-path verticals/retail-svc/Cargo.toml --all -- --check
+
+      - name: Clippy (deny warnings)
+        run: cargo clippy --manifest-path verticals/retail-svc/Cargo.toml --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --manifest-path verticals/retail-svc/Cargo.toml
+
   openapi-client:
     name: openapi client (typescript)
     runs-on: ubuntu-latest

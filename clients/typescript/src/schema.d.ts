@@ -932,6 +932,61 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/retail/loyalty": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List loyalty accounts */
+        get: operations["listLoyaltyAccounts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/retail/loyalty/{customer_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                customer_id: string;
+            };
+            cookie?: never;
+        };
+        /** Get a customer's loyalty account */
+        get: operations["getLoyaltyAccount"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/retail/loyalty/{customer_id}/redeem": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                customer_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Redeem loyalty points (emits PointsRedeemed) */
+        post: operations["redeemLoyaltyPoints"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1341,6 +1396,29 @@ export interface components {
         ShipmentPage: {
             items?: components["schemas"]["Shipment"][];
         } & components["schemas"]["PageMeta"];
+        /** @enum {string} */
+        LoyaltyTier: "BRONZE" | "SILVER" | "GOLD";
+        LoyaltyAccount: {
+            readonly tenant_id?: string;
+            readonly customer_id?: string;
+            /** Format: int64 */
+            readonly points_balance?: number;
+            /**
+             * Format: int64
+             * @description Lifetime spend in minor units
+             */
+            readonly lifetime_spend?: number;
+            tier?: components["schemas"]["LoyaltyTier"];
+            /** Format: date-time */
+            readonly updated_at?: string;
+        };
+        LoyaltyAccountPage: {
+            items?: components["schemas"]["LoyaltyAccount"][];
+        } & components["schemas"]["PageMeta"];
+        RedeemRequest: {
+            /** Format: int64 */
+            points: number;
+        };
     };
     responses: {
         /** @description Unexpected error */
@@ -3271,6 +3349,81 @@ export interface operations {
                 };
             };
             409: components["responses"]["Conflict"];
+            default: components["responses"]["Error"];
+        };
+    };
+    listLoyaltyAccounts: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["Page"];
+                page_size?: components["parameters"]["PageSize"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of loyalty accounts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoyaltyAccountPage"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    getLoyaltyAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                customer_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The loyalty account */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoyaltyAccount"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            default: components["responses"]["Error"];
+        };
+    };
+    redeemLoyaltyPoints: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                customer_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RedeemRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated account */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoyaltyAccount"];
+                };
+            };
             default: components["responses"]["Error"];
         };
     };

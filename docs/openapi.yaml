@@ -49,6 +49,8 @@ tags:
     description: Query, insight, assistant, model management (ai-svc, /api/v1/ai)
   - name: TradeExport
     description: Export shipments — first vertical (trade-export-svc, /api/v1/trade-export)
+  - name: Retail
+    description: Loyalty programme — second vertical (retail-svc, /api/v1/retail)
 
 paths:
   # ───────────────────────────── Auth ─────────────────────────────
@@ -1244,6 +1246,63 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         default: { $ref: '#/components/responses/Error' }
 
+  # ───────────────────────── Retail (vertical) ─────────────────────────
+  /api/v1/retail/loyalty:
+    get:
+      tags: [Retail]
+      summary: List loyalty accounts
+      operationId: listLoyaltyAccounts
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: A page of loyalty accounts
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoyaltyAccountPage' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/retail/loyalty/{customer_id}:
+    parameters:
+      - name: customer_id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Retail]
+      summary: Get a customer's loyalty account
+      operationId: getLoyaltyAccount
+      responses:
+        '200':
+          description: The loyalty account
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoyaltyAccount' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/retail/loyalty/{customer_id}/redeem:
+    parameters:
+      - name: customer_id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Retail]
+      summary: Redeem loyalty points (emits PointsRedeemed)
+      operationId: redeemLoyaltyPoints
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RedeemRequest' }
+      responses:
+        '200':
+          description: Updated account
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoyaltyAccount' }
+        default: { $ref: '#/components/responses/Error' }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1759,3 +1818,27 @@ components:
       allOf: [{ $ref: '#/components/schemas/PageMeta' }]
       properties:
         items: { type: array, items: { $ref: '#/components/schemas/Shipment' } }
+
+    # ---- Retail (vertical) ----
+    LoyaltyTier:
+      type: string
+      enum: [BRONZE, SILVER, GOLD]
+    LoyaltyAccount:
+      type: object
+      properties:
+        tenant_id: { type: string, readOnly: true }
+        customer_id: { type: string, readOnly: true }
+        points_balance: { type: integer, format: int64, readOnly: true }
+        lifetime_spend: { type: integer, format: int64, description: Lifetime spend in minor units, readOnly: true }
+        tier: { $ref: '#/components/schemas/LoyaltyTier' }
+        updated_at: { type: string, format: date-time, readOnly: true }
+    LoyaltyAccountPage:
+      type: object
+      allOf: [{ $ref: '#/components/schemas/PageMeta' }]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/LoyaltyAccount' } }
+    RedeemRequest:
+      type: object
+      required: [points]
+      properties:
+        points: { type: integer, format: int64, minimum: 1 }
