@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use event_models::crm::{subjects as crm_subjects, CustomerCreated, DealCreated, DealStageChanged};
-use event_models::erp::{subjects, OrderCreated, OrderPaid};
+use event_models::erp::{subjects, OrderCreated, OrderPaid, StockAdjusted};
 use event_models::hrm::{subjects as hrm_subjects, EmployeeHired};
 use platform_events::{HandlerError, HandlerResult, InboundEventHandler};
 
@@ -15,6 +15,8 @@ use crate::domain::deals::entities::{DealStageChange, NewDealFact};
 use crate::domain::deals::ports::DealsProjection;
 use crate::domain::employees::entities::NewEmployeeFact;
 use crate::domain::employees::ports::EmployeesProjection;
+use crate::domain::inventory::entities::StockAdjustment;
+use crate::domain::inventory::ports::InventoryProjection;
 use crate::domain::orders::entities::NewOrderFact;
 use crate::domain::orders::ports::OrdersProjection;
 use crate::domain::sales::ports::SalesProjection;
@@ -26,6 +28,7 @@ pub struct EventIngestor {
     customers: Arc<dyn CustomersProjection>,
     employees: Arc<dyn EmployeesProjection>,
     deals: Arc<dyn DealsProjection>,
+    inventory: Arc<dyn InventoryProjection>,
 }
 
 impl EventIngestor {
@@ -35,6 +38,7 @@ impl EventIngestor {
         customers: Arc<dyn CustomersProjection>,
         employees: Arc<dyn EmployeesProjection>,
         deals: Arc<dyn DealsProjection>,
+        inventory: Arc<dyn InventoryProjection>,
     ) -> Self {
         Self {
             sales,
@@ -42,6 +46,7 @@ impl EventIngestor {
             customers,
             employees,
             deals,
+            inventory,
         }
     }
 }
@@ -128,6 +133,21 @@ impl InboundEventHandler for EventIngestor {
                 })
                 .await
                 .map_err(|e| HandlerError(e.to_string()))?;
+        } else if subject == subjects::STOCK_ADJUSTED {
+            let event: StockAdjusted = serde_json::from_slice(payload)
+                .map_err(|e| HandlerError(format!("malformed StockAdjusted payload: {e}")))?;
+            self.inventory
+                .apply_stock_adjusted(
+                    event.header.event_id,
+                    &TenantId(event.header.tenant_id),
+                    &StockAdjustment {
+                        product_id: event.product_id,
+                        warehouse_id: event.warehouse_id,
+                        delta: event.delta,
+                    },
+                )
+                .await
+                .map_err(|e| HandlerError(e.to_string()))?;
         }
         // Other subjects are not yet projected; ignored so the consumer keeps
         // draining the bus.
@@ -148,6 +168,7 @@ mod tests {
     use crate::domain::customers::entities::ReportedCustomer;
     use crate::domain::deals::entities::StageCount;
     use crate::domain::employees::entities::ReportedEmployee;
+    use crate::domain::inventory::entities::StockLevel;
     use crate::domain::orders::entities::{OrdersOverview, ReportedOrder};
     use crate::domain::sales::entities::SalesSummary;
     use crate::domain::shared::error::DomainResult;
@@ -283,6 +304,29 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct FakeInventory {
+        applied: Mutex<Vec<(String, i64)>>,
+    }
+    #[async_trait]
+    impl InventoryProjection for FakeInventory {
+        async fn apply_stock_adjusted(
+            &self,
+            _event_id: Uuid,
+            _tenant: &TenantId,
+            adj: &StockAdjustment,
+        ) -> DomainResult<()> {
+            self.applied
+                .lock()
+                .unwrap()
+                .push((adj.product_id.clone(), adj.delta));
+            Ok(())
+        }
+        async fn summary(&self, _t: &TenantId) -> DomainResult<Vec<StockLevel>> {
+            Ok(vec![])
+        }
+    }
+
     type Fakes = (
         EventIngestor,
         Arc<FakeSales>,
@@ -290,6 +334,7 @@ mod tests {
         Arc<FakeCustomers>,
         Arc<FakeEmployees>,
         Arc<FakeDeals>,
+        Arc<FakeInventory>,
     );
 
     fn ingestor() -> Fakes {
@@ -298,6 +343,7 @@ mod tests {
         let customers = Arc::new(FakeCustomers::default());
         let employees = Arc::new(FakeEmployees::default());
         let deals = Arc::new(FakeDeals::default());
+        let inventory = Arc::new(FakeInventory::default());
         (
             EventIngestor::new(
                 sales.clone(),
@@ -305,12 +351,14 @@ mod tests {
                 customers.clone(),
                 employees.clone(),
                 deals.clone(),
+                inventory.clone(),
             ),
             sales,
             orders,
             customers,
             employees,
             deals,
+            inventory,
         )
     }
 
@@ -434,9 +482,29 @@ mod tests {
         event.payload_json().unwrap()
     }
 
+    fn stock_adjusted_bytes(tenant: &str, product_id: &str, delta: i64) -> Vec<u8> {
+        let header = EventHeader::new(
+            Uuid::now_v7(),
+            Utc::now(),
+            tenant.to_string(),
+            "product",
+            product_id.to_string(),
+            "StockAdjusted",
+            1,
+        );
+        let event = ErpEvent::StockAdjusted(StockAdjusted {
+            header,
+            product_id: product_id.into(),
+            warehouse_id: "w1".into(),
+            delta,
+            reason: "manual_adjustment".into(),
+        });
+        event.payload_json().unwrap()
+    }
+
     #[tokio::test]
     async fn applies_order_paid_to_sales() {
-        let (ingestor, sales, _orders, _customers, _employees, _deals) = ingestor();
+        let (ingestor, sales, _orders, _customers, _employees, _deals, _inventory) = ingestor();
         let (event_id, bytes) = order_paid_bytes("t1", 4200);
 
         ingestor.handle(subjects::ORDER_PAID, &bytes).await.unwrap();
@@ -448,7 +516,7 @@ mod tests {
 
     #[tokio::test]
     async fn applies_order_created_to_orders() {
-        let (ingestor, _sales, orders, _customers, _employees, _deals) = ingestor();
+        let (ingestor, _sales, orders, _customers, _employees, _deals, _inventory) = ingestor();
 
         ingestor
             .handle(
@@ -465,7 +533,7 @@ mod tests {
 
     #[tokio::test]
     async fn applies_customer_created_to_customers() {
-        let (ingestor, _sales, _orders, customers, _employees, _deals) = ingestor();
+        let (ingestor, _sales, _orders, customers, _employees, _deals, _inventory) = ingestor();
 
         ingestor
             .handle(
@@ -482,7 +550,7 @@ mod tests {
 
     #[tokio::test]
     async fn applies_employee_hired_to_employees() {
-        let (ingestor, _sales, _orders, _customers, employees, _deals) = ingestor();
+        let (ingestor, _sales, _orders, _customers, employees, _deals, _inventory) = ingestor();
 
         ingestor
             .handle(
@@ -499,7 +567,7 @@ mod tests {
 
     #[tokio::test]
     async fn applies_deal_events_to_deals() {
-        let (ingestor, _sales, _orders, _customers, _employees, deals) = ingestor();
+        let (ingestor, _sales, _orders, _customers, _employees, deals, _inventory) = ingestor();
 
         ingestor
             .handle(
@@ -527,13 +595,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn applies_stock_adjusted_to_inventory() {
+        let (ingestor, _sales, _orders, _customers, _employees, _deals, inventory) = ingestor();
+
+        ingestor
+            .handle(
+                subjects::STOCK_ADJUSTED,
+                &stock_adjusted_bytes("t1", "p9", -5),
+            )
+            .await
+            .unwrap();
+
+        let applied = inventory.applied.lock().unwrap();
+        assert_eq!(applied.len(), 1);
+        assert_eq!(applied[0], ("p9".to_string(), -5));
+    }
+
+    #[tokio::test]
     async fn ignores_unprojected_subjects() {
-        let (ingestor, sales, orders, customers, employees, deals) = ingestor();
+        let (ingestor, sales, orders, customers, employees, deals, inventory) = ingestor();
 
         // A subject we don't project yet is a no-op (not an error).
         ingestor
             .handle(
-                "platform.erp.order.status_changed",
+                "platform.erp.invoice.issued",
                 &order_paid_bytes("t1", 100).1,
             )
             .await
@@ -544,11 +629,12 @@ mod tests {
         assert!(employees.applied.lock().unwrap().is_empty());
         assert!(deals.created.lock().unwrap().is_empty());
         assert!(deals.changed.lock().unwrap().is_empty());
+        assert!(inventory.applied.lock().unwrap().is_empty());
     }
 
     #[tokio::test]
     async fn rejects_malformed_payload() {
-        let (ingestor, _s, _o, _c, _e, _d) = ingestor();
+        let (ingestor, _s, _o, _c, _e, _d, _i) = ingestor();
         let err = ingestor
             .handle(subjects::ORDER_PAID, b"not json")
             .await

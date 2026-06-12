@@ -3,6 +3,7 @@
 pub mod customers_repo_pg;
 pub mod deals_repo_pg;
 pub mod employees_repo_pg;
+pub mod inventory_repo_pg;
 pub mod orders_repo_pg;
 pub mod postgres;
 pub mod sales_repo_pg;
