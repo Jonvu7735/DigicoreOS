@@ -19,6 +19,14 @@ pub trait ActivityRepository: Send + Sync {
         limit: i64,
         offset: i64,
     ) -> DomainResult<Vec<Activity>>;
+    /// Activities logged against one customer (newest interaction first).
+    async fn list_for_customer(
+        &self,
+        tenant: &TenantId,
+        customer_id: &Uuid,
+        limit: i64,
+        offset: i64,
+    ) -> DomainResult<Vec<Activity>>;
     async fn find_in_tenant(&self, tenant: &TenantId, id: &Uuid) -> DomainResult<Option<Activity>>;
     async fn update(&self, activity: &Activity) -> DomainResult<()>;
 }

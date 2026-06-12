@@ -91,6 +91,27 @@ impl ActivityRepository for PgActivityRepo {
         rows.into_iter().map(to_activity).collect()
     }
 
+    async fn list_for_customer(
+        &self,
+        tenant: &TenantId,
+        customer_id: &Uuid,
+        limit: i64,
+        offset: i64,
+    ) -> DomainResult<Vec<Activity>> {
+        let rows: Vec<ActivityRow> = sqlx::query_as(&format!(
+            "SELECT {COLS} FROM activities WHERE tenant_id = $1 AND customer_id = $2 \
+             ORDER BY occurred_at DESC LIMIT $3 OFFSET $4"
+        ))
+        .bind(&tenant.0)
+        .bind(customer_id)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_db_err)?;
+        rows.into_iter().map(to_activity).collect()
+    }
+
     async fn find_in_tenant(&self, tenant: &TenantId, id: &Uuid) -> DomainResult<Option<Activity>> {
         let row: Option<ActivityRow> = sqlx::query_as(&format!(
             "SELECT {COLS} FROM activities WHERE tenant_id = $1 AND id = $2"

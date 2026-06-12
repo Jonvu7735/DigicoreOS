@@ -73,6 +73,18 @@ impl ActivityService {
         self.repo.list_in_tenant(tenant_id, limit, offset).await
     }
 
+    pub async fn list_for_customer(
+        &self,
+        tenant_id: &TenantId,
+        customer_id: &Uuid,
+        limit: i64,
+        offset: i64,
+    ) -> DomainResult<Vec<Activity>> {
+        self.repo
+            .list_for_customer(tenant_id, customer_id, limit, offset)
+            .await
+    }
+
     pub async fn get(&self, tenant_id: &TenantId, id: &Uuid) -> DomainResult<Activity> {
         self.repo
             .find_in_tenant(tenant_id, id)
@@ -161,6 +173,22 @@ mod tests {
             _o: i64,
         ) -> DomainResult<Vec<Activity>> {
             Ok(self.items.lock().unwrap().clone())
+        }
+        async fn list_for_customer(
+            &self,
+            _t: &TenantId,
+            customer: &Uuid,
+            _l: i64,
+            _o: i64,
+        ) -> DomainResult<Vec<Activity>> {
+            Ok(self
+                .items
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|a| a.customer_id == *customer)
+                .cloned()
+                .collect())
         }
         async fn find_in_tenant(&self, _t: &TenantId, id: &Uuid) -> DomainResult<Option<Activity>> {
             Ok(self

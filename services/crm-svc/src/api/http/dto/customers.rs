@@ -38,6 +38,17 @@ pub struct CustomerResponse {
     pub created_at: String,
 }
 
+/// One entry in a customer's activity timeline (a deal or a logged interaction),
+/// matching the OpenAPI `TimelineEntry` schema.
+#[derive(Debug, Serialize)]
+pub struct TimelineEntry {
+    /// e.g. `deal`, `activity`.
+    pub kind: String,
+    pub ref_id: String,
+    pub summary: String,
+    pub occurred_at: String,
+}
+
 impl From<Customer> for CustomerResponse {
     fn from(c: Customer) -> Self {
         Self {

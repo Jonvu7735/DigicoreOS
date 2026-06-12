@@ -76,6 +76,18 @@ impl DealService {
         self.repo.list_in_tenant(tenant_id, limit, offset).await
     }
 
+    pub async fn list_for_customer(
+        &self,
+        tenant_id: &TenantId,
+        customer_id: &Uuid,
+        limit: i64,
+        offset: i64,
+    ) -> DomainResult<Vec<Deal>> {
+        self.repo
+            .list_for_customer(tenant_id, customer_id, limit, offset)
+            .await
+    }
+
     pub async fn get(&self, tenant_id: &TenantId, id: &Uuid) -> DomainResult<Deal> {
         self.repo
             .find_in_tenant(tenant_id, id)
@@ -161,6 +173,22 @@ mod tests {
         }
         async fn list_in_tenant(&self, _t: &TenantId, _l: i64, _o: i64) -> DomainResult<Vec<Deal>> {
             Ok(self.items.lock().unwrap().clone())
+        }
+        async fn list_for_customer(
+            &self,
+            _t: &TenantId,
+            customer: &Uuid,
+            _l: i64,
+            _o: i64,
+        ) -> DomainResult<Vec<Deal>> {
+            Ok(self
+                .items
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|d| d.customer_id == *customer)
+                .cloned()
+                .collect())
         }
         async fn find_in_tenant(&self, _t: &TenantId, id: &Uuid) -> DomainResult<Option<Deal>> {
             Ok(self

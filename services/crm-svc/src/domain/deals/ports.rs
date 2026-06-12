@@ -18,6 +18,14 @@ pub trait DealRepository: Send + Sync {
         limit: i64,
         offset: i64,
     ) -> DomainResult<Vec<Deal>>;
+    /// Deals belonging to one customer (newest first).
+    async fn list_for_customer(
+        &self,
+        tenant: &TenantId,
+        customer_id: &Uuid,
+        limit: i64,
+        offset: i64,
+    ) -> DomainResult<Vec<Deal>>;
     async fn find_in_tenant(&self, tenant: &TenantId, id: &Uuid) -> DomainResult<Option<Deal>>;
     /// Persist a stage change and enqueue `event` (DealStageChanged), in one tx.
     async fn save_stage(&self, deal: &Deal, event: &OutboxMessage) -> DomainResult<()>;

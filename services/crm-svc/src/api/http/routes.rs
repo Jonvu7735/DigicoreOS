@@ -29,6 +29,10 @@ pub fn router(state: AppState) -> Router {
             "/customers/{customer_id}",
             get(handlers::customers::get).patch(handlers::customers::update),
         )
+        .route(
+            "/customers/{customer_id}/timeline",
+            get(handlers::customers::timeline),
+        )
         // --- deals / sales pipeline (RBAC-guarded, ARCHITECTURE.md §3.3) ---
         .route(
             "/deals",
