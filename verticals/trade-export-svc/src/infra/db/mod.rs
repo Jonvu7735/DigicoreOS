@@ -1,5 +1,6 @@
 //! Postgres adapters for the `trade_export_svc` schema (DATA-STRATEGY.md §3.1).
 
+pub mod cargo_line_repo_pg;
 pub mod postgres;
 pub mod shipment_repo_pg;
 

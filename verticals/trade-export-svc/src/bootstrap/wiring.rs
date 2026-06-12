@@ -14,9 +14,10 @@ use crate::api;
 use crate::bootstrap::config::AppConfig;
 use crate::domain::ingest::ingestor::ShipmentIngestor;
 use crate::domain::shared::types::Clock;
-use crate::domain::shipments::ports::ShipmentRepository;
+use crate::domain::shipments::ports::{CargoLineRepository, ShipmentRepository};
 use crate::domain::shipments::services::ShipmentService;
 use crate::infra;
+use crate::infra::db::cargo_line_repo_pg::PgCargoLineRepo;
 use crate::infra::db::shipment_repo_pg::PgShipmentRepo;
 use crate::infra::time::clock::SystemClock;
 
@@ -48,7 +49,8 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
 
     let clock: Arc<dyn Clock> = Arc::new(SystemClock);
     let repo: Arc<dyn ShipmentRepository> = Arc::new(PgShipmentRepo::new(db.clone()));
-    let shipments = Arc::new(ShipmentService::new(repo, clock));
+    let cargo: Arc<dyn CargoLineRepository> = Arc::new(PgCargoLineRepo::new(db.clone()));
+    let shipments = Arc::new(ShipmentService::new(repo, cargo, clock));
 
     // Outbox relay (DATA-STRATEGY.md §3.2): publishes ShipmentBooked when NATS is up.
     let outbox_repo: Arc<dyn OutboxRepository> = Arc::new(PgOutboxRepo::new(db.clone()));

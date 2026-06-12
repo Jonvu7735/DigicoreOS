@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::domain::shared::error::DomainResult;
 use crate::domain::shared::types::TenantId;
-use crate::domain::shipments::entities::ExportShipment;
+use crate::domain::shipments::entities::{CargoLine, ExportShipment};
 
 #[async_trait]
 pub trait ShipmentRepository: Send + Sync {
@@ -37,4 +37,16 @@ pub trait ShipmentRepository: Send + Sync {
         shipment: &ExportShipment,
         event: &OutboxMessage,
     ) -> DomainResult<()>;
+}
+
+/// Repository for a shipment's cargo lines (the packing-list rows).
+#[async_trait]
+pub trait CargoLineRepository: Send + Sync {
+    async fn insert(&self, line: &CargoLine) -> DomainResult<()>;
+    /// Lines on `shipment_id` within `tenant`, oldest first.
+    async fn list_for_shipment(
+        &self,
+        tenant: &TenantId,
+        shipment_id: &Uuid,
+    ) -> DomainResult<Vec<CargoLine>>;
 }
