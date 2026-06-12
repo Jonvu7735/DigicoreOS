@@ -74,3 +74,27 @@ pub async fn book(
     let shipment = state.shipments.book(&tenant, &shipment_id).await?;
     Ok(Json(shipment.into()))
 }
+
+/// `POST /api/v1/trade-export/shipments/{shipment_id}/dispatch` — dispatch + event.
+pub async fn dispatch(
+    State(state): State<AppState>,
+    auth: Auth,
+    Path(shipment_id): Path<Uuid>,
+) -> Result<Json<ShipmentResponse>, ApiError> {
+    auth.require_any_role(&WRITE_ROLES)?;
+    let tenant = TenantId(auth.0.tenant_id);
+    let shipment = state.shipments.dispatch(&tenant, &shipment_id).await?;
+    Ok(Json(shipment.into()))
+}
+
+/// `POST /api/v1/trade-export/shipments/{shipment_id}/cancel` — cancel + event.
+pub async fn cancel(
+    State(state): State<AppState>,
+    auth: Auth,
+    Path(shipment_id): Path<Uuid>,
+) -> Result<Json<ShipmentResponse>, ApiError> {
+    auth.require_any_role(&WRITE_ROLES)?;
+    let tenant = TenantId(auth.0.tenant_id);
+    let shipment = state.shipments.cancel(&tenant, &shipment_id).await?;
+    Ok(Json(shipment.into()))
+}

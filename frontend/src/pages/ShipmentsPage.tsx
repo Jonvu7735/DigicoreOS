@@ -60,7 +60,7 @@ export function ShipmentsPage() {
     setOrderId("");
   }
 
-  function onBooked(updated: Shipment) {
+  function onUpdated(updated: Shipment) {
     setShipments((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
   }
 
@@ -118,7 +118,7 @@ export function ShipmentsPage() {
           </thead>
           <tbody>
             {shipments.map((s, i) => (
-              <ShipmentRow key={s.id ?? i} shipment={s} onBooked={onBooked} />
+              <ShipmentRow key={s.id ?? i} shipment={s} onUpdated={onUpdated} />
             ))}
           </tbody>
         </table>
@@ -129,43 +129,63 @@ export function ShipmentsPage() {
 
 function ShipmentRow({
   shipment,
-  onBooked,
+  onUpdated,
 }: {
   shipment: Shipment;
-  onBooked: (updated: Shipment) => void;
+  onUpdated: (updated: Shipment) => void;
 }) {
   const api = useApi();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  async function book() {
-    if (!shipment.id) return;
+  async function act(action: "book" | "dispatch" | "cancel") {
+    const id = shipment.id;
+    if (!id) return;
     setBusy(true);
     setErr(null);
-    const { data, error } = await api.POST(
-      "/api/v1/trade-export/shipments/{shipment_id}/book",
-      { params: { path: { shipment_id: shipment.id } } },
-    );
+    const res =
+      action === "book"
+        ? await api.POST("/api/v1/trade-export/shipments/{shipment_id}/book", {
+            params: { path: { shipment_id: id } },
+          })
+        : action === "dispatch"
+          ? await api.POST("/api/v1/trade-export/shipments/{shipment_id}/dispatch", {
+              params: { path: { shipment_id: id } },
+            })
+          : await api.POST("/api/v1/trade-export/shipments/{shipment_id}/cancel", {
+              params: { path: { shipment_id: id } },
+            });
     setBusy(false);
-    if (error || !data) {
-      setErr("Không đặt được chỗ");
+    if (res.error || !res.data) {
+      setErr("Thao tác thất bại");
       return;
     }
-    onBooked(data);
+    onUpdated(res.data);
   }
 
+  const status = shipment.status;
   return (
     <tr>
       <td className="mono">{shipment.reference ?? "—"}</td>
       <td>{shipment.destination_country}</td>
       <td>{shipment.incoterm}</td>
       <td>
-        <span className="pill">{shipment.status ?? "—"}</span>
+        <span className="pill">{status ?? "—"}</span>
       </td>
       <td className="redeem">
-        {shipment.status === "DRAFT" && (
-          <button disabled={busy} onClick={book}>
+        {status === "DRAFT" && (
+          <button disabled={busy} onClick={() => act("book")}>
             {busy ? "…" : "Đặt chỗ"}
+          </button>
+        )}
+        {status === "BOOKED" && (
+          <button disabled={busy} onClick={() => act("dispatch")}>
+            {busy ? "…" : "Gửi đi"}
+          </button>
+        )}
+        {(status === "DRAFT" || status === "BOOKED") && (
+          <button className="ghost" disabled={busy} onClick={() => act("cancel")}>
+            Huỷ
           </button>
         )}
         {err && <span className="error">{err}</span>}
