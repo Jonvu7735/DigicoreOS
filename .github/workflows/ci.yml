@@ -66,6 +66,10 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
+      # NATS for the cross-service event-backbone E2E test (reporting-svc/e2e.rs).
+      nats:
+        image: nats:2.10
+        ports: ["4222:4222"]
     steps:
       - uses: actions/checkout@v4
 
@@ -73,6 +77,16 @@ jobs:
         run: |
           rustup toolchain install 1.96.0 --profile minimal
           rustc --version
+
+      # Service containers without a health check may not accept connections yet;
+      # the E2E test would otherwise silently skip. Wait for the NATS port.
+      - name: Wait for NATS
+        run: |
+          for i in $(seq 1 30); do
+            (echo > /dev/tcp/localhost/4222) >/dev/null 2>&1 && { echo "NATS ready"; exit 0; }
+            sleep 1
+          done
+          echo "::error::NATS did not become ready"; exit 1
 
       - name: Cache cargo registry & build
         uses: actions/cache@v4
@@ -91,6 +105,7 @@ jobs:
       - name: Test (with database)
         env:
           TEST_DATABASE_URL: postgres://digicore:digicore@localhost:5432/digicore
+          TEST_NATS_URL: nats://localhost:4222
         run: cargo test --workspace
 
   supply-chain:

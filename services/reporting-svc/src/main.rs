@@ -15,6 +15,11 @@ mod domain;
 mod infra;
 mod utils;
 
+// End-to-end event-backbone test (outbox -> NATS -> consumer -> read model);
+// gated on TEST_DATABASE_URL + TEST_NATS_URL, so it only runs in CI integration.
+#[cfg(test)]
+mod e2e;
+
 use anyhow::Context;
 
 #[tokio::main]
