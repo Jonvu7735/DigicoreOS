@@ -32,13 +32,14 @@ pub fn router(state: AppState) -> Router {
             get(handlers::inventory_summary::summary),
         )
         .route("/hrm-summary", get(handlers::hrm_summary::summary))
+        .route("/export", get(handlers::export::export))
         // --- snapshots (capture a read model + emit ReportSnapshotCreated) ---
         .route(
             "/snapshots",
             get(handlers::snapshots::list).post(handlers::snapshots::create),
         );
-    // Further read-model slices (crm-funnel, hrm-summary, …) add their
-    // RBAC-guarded routes here as the matching projections land.
+    // All documented reporting dashboards are served above; a new read-model
+    // slice adds its projection (domain/ + infra/db/ + ingest) and a route here.
 
     Router::new()
         .nest("/api/v1/reporting", reporting_routes)
