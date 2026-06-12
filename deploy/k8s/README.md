@@ -98,9 +98,11 @@ curl localhost:8081/api/v1/auth/health
   It needs an ingress controller (ingress-nginx) plus a real host and the
   `digicore-tls` secret; without a controller the Ingress object is created but
   inert.
-- **Network policy**: `60-network-policy.yaml` enforces `SECURITY.md §5.1`
-  (default-deny ingress + an allowlist for ingress→services and
-  services→postgres/nats). It needs a CNI that enforces NetworkPolicy (Calico,
-  Cilium, …); egress is left open so DNS and ai-svc's outbound calls keep working.
-  Add new vertical services to the `app In (...)` selectors when they need the
-  database or event bus.
+- **Network policy**: `60-network-policy.yaml` enforces `SECURITY.md §5.1`.
+  **Ingress** is default-deny + an allowlist (ingress→services, services→
+  postgres/nats). **Egress** is also default-deny: only DNS, services→postgres/
+  nats, and ai-svc→external HTTPS are permitted. It needs a CNI that enforces
+  NetworkPolicy (Calico, Cilium, …). Add new vertical services to the
+  `app In (...)` selectors when they need the database or event bus; if the DNS
+  allow doesn't match your cluster (CoreDNS not in `kube-system`), adjust
+  `allow-dns-egress`.

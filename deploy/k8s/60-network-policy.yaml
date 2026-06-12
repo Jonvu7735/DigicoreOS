@@ -11,11 +11,11 @@
 # added to the `app In (...)` lists below.
 #
 # Requires a CNI that enforces NetworkPolicy (Calico, Cilium, Weave, ...); with a
-# no-op CNI these objects are inert. Egress is left unrestricted on purpose so
-# DNS and ai-svc's outbound calls keep working — tighten per-workload if your
-# threat model needs it. Kubelet probes / `kubectl port-forward` originate from
-# the node; mainstream CNIs exempt host→pod traffic, but on strict setups add an
-# ingress rule for the node range.
+# no-op CNI these objects are inert. Egress is also default-deny (see the egress
+# policies at the foot of this file): only DNS, services→postgres/nats, and
+# ai-svc→external HTTPS are permitted. Kubelet probes / `kubectl port-forward`
+# originate from the node; mainstream CNIs exempt host→pod traffic, but on strict
+# setups add an ingress rule for the node range.
 # ---------------------------------------------------------------------------
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -92,3 +92,81 @@ spec:
               - { key: app, operator: In, values: [auth-svc, core-erp-svc, crm-svc, hrm-svc, reporting-svc, ai-svc, trade-export-svc] }
       ports:
         - { protocol: TCP, port: 4222 }
+---
+# ===========================================================================
+# Egress hardening. Default-deny egress for every pod, then the minimum allows:
+# DNS for all, services -> postgres/nats, and ai-svc -> external HTTPS. Postgres
+# and NATS are servers (they initiate nothing), so they keep default-deny egress.
+# ===========================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  namespace: digicore
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+---
+# DNS for every pod (CoreDNS/kube-dns in kube-system, UDP+TCP 53) — required to
+# resolve the postgres/nats Service names and any external host. If your DNS runs
+# elsewhere or you want it tighter, swap the namespaceSelector for a podSelector
+# on the kube-dns pods.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: digicore
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+---
+# Platform services may reach Postgres (:5432) and NATS (:4222) — and nothing
+# else in-cluster. New verticals that use the DB/bus go in the `app In (...)` list.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-services-egress-to-infra
+  namespace: digicore
+spec:
+  podSelector:
+    matchExpressions:
+      - { key: app, operator: In, values: [auth-svc, core-erp-svc, crm-svc, hrm-svc, reporting-svc, ai-svc, trade-export-svc] }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector: { matchLabels: { app: postgres } }
+      ports:
+        - { protocol: TCP, port: 5432 }
+    - to:
+        - podSelector: { matchLabels: { app: nats } }
+      ports:
+        - { protocol: TCP, port: 4222 }
+---
+# ai-svc may call external model providers over HTTPS. The ipBlock excludes the
+# private RFC-1918 ranges so this grants ONLY public-internet egress (in-cluster
+# traffic still goes through the explicit allows above).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ai-egress-external
+  namespace: digicore
+spec:
+  podSelector: { matchLabels: { app: ai-svc } }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - { protocol: TCP, port: 443 }
