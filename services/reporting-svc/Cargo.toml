@@ -32,3 +32,4 @@ sqlx = { workspace = true }
 # event bus subscription is handled by the shared platform-events crate.
 tracing = { workspace = true }
 metrics = { workspace = true }
+rust_xlsxwriter = { version = "0.95.0", default-features = false }
