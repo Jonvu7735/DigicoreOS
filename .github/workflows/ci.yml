@@ -144,3 +144,32 @@ jobs:
 
       - name: Test
         run: cargo test --manifest-path verticals/trade-export-svc/Cargo.toml
+
+  openapi-client:
+    name: openapi client (typescript)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: clients/typescript
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: clients/typescript/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # The committed src/schema.d.ts must match what docs/openapi.yaml produces;
+      # npm ci pins the exact generator version, so this diff is deterministic.
+      - name: Verify generated client is in sync with docs/openapi.yaml
+        run: |
+          npm run generate
+          git diff --exit-code -- src/schema.d.ts \
+            || { echo "::error::src/schema.d.ts is stale — run 'npm run generate' in clients/typescript and commit it."; exit 1; }
