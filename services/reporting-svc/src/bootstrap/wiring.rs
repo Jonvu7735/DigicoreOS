@@ -14,10 +14,12 @@ use platform_events::{connect_consumer, InboundEventHandler, NatsConsumer};
 use crate::api;
 use crate::bootstrap::config::AppConfig;
 use crate::domain::ingest::ingestor::EventIngestor;
+use crate::domain::orders::ports::OrdersProjection;
 use crate::domain::sales::ports::SalesProjection;
 use crate::domain::shared::types::Clock;
 use crate::domain::snapshots::services::SnapshotService;
 use crate::infra;
+use crate::infra::db::orders_repo_pg::PgOrdersRepo;
 use crate::infra::db::sales_repo_pg::PgSalesRepo;
 use crate::infra::db::snapshot_repo_pg::PgSnapshotRepo;
 use crate::infra::time::clock::SystemClock;
@@ -32,6 +34,8 @@ pub struct AppState {
     pub verifier: Arc<JwtVerifier>,
     /// Sales read model (queried by the dashboard, written by the consumer).
     pub sales: Arc<dyn SalesProjection>,
+    /// Orders read model (per-order facts projected from OrderCreated).
+    pub orders: Arc<dyn OrdersProjection>,
     pub snapshots: Arc<SnapshotService>,
 }
 
@@ -52,7 +56,9 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
 
     // Read models + the ingestor that updates them from inbound events.
     let sales: Arc<dyn SalesProjection> = Arc::new(PgSalesRepo::new(db.clone()));
-    let ingestor: Arc<dyn InboundEventHandler> = Arc::new(EventIngestor::new(sales.clone()));
+    let orders: Arc<dyn OrdersProjection> = Arc::new(PgOrdersRepo::new(db.clone()));
+    let ingestor: Arc<dyn InboundEventHandler> =
+        Arc::new(EventIngestor::new(sales.clone(), orders.clone()));
 
     let clock: Arc<dyn Clock> = Arc::new(SystemClock);
     let snapshots = Arc::new(SnapshotService::new(
@@ -80,6 +86,7 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
         metrics,
         verifier,
         sales,
+        orders,
         snapshots,
     })
 }
