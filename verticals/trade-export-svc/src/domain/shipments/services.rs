@@ -9,7 +9,7 @@ use uuid::Uuid;
 use crate::domain::shared::error::{DomainError, DomainResult};
 use crate::domain::shared::types::{Clock, TenantId};
 use crate::domain::shipments::entities::{ExportShipment, ShipmentStatus};
-use crate::domain::shipments::events::{booked_outbox, ShipmentBooked};
+use crate::domain::shipments::events::{shipment_outbox, subjects, ShipmentEvent};
 use crate::domain::shipments::ports::ShipmentRepository;
 
 pub struct ShipmentService {
@@ -75,17 +75,62 @@ impl ShipmentService {
             .ok_or_else(|| DomainError::NotFound(format!("shipment {id}")))
     }
 
-    /// Book a draft shipment with a carrier; emits `ShipmentBooked`.
+    /// Book a draft shipment with a carrier (DRAFT→BOOKED); emits `ShipmentBooked`.
     pub async fn book(&self, tenant_id: &TenantId, id: &Uuid) -> DomainResult<ExportShipment> {
+        self.transition(
+            tenant_id,
+            id,
+            ShipmentStatus::Booked,
+            "ShipmentBooked",
+            subjects::SHIPMENT_BOOKED,
+        )
+        .await
+    }
+
+    /// Mark a booked shipment dispatched (BOOKED→DISPATCHED); emits `ShipmentDispatched`.
+    pub async fn dispatch(&self, tenant_id: &TenantId, id: &Uuid) -> DomainResult<ExportShipment> {
+        self.transition(
+            tenant_id,
+            id,
+            ShipmentStatus::Dispatched,
+            "ShipmentDispatched",
+            subjects::SHIPMENT_DISPATCHED,
+        )
+        .await
+    }
+
+    /// Cancel a draft or booked shipment (→CANCELLED); emits `ShipmentCancelled`.
+    pub async fn cancel(&self, tenant_id: &TenantId, id: &Uuid) -> DomainResult<ExportShipment> {
+        self.transition(
+            tenant_id,
+            id,
+            ShipmentStatus::Cancelled,
+            "ShipmentCancelled",
+            subjects::SHIPMENT_CANCELLED,
+        )
+        .await
+    }
+
+    /// Validate a status transition against the machine, persist it, and enqueue
+    /// the matching event in one transaction (via the repo's `save_status`).
+    async fn transition(
+        &self,
+        tenant_id: &TenantId,
+        id: &Uuid,
+        next: ShipmentStatus,
+        event_type: &'static str,
+        subject: &'static str,
+    ) -> DomainResult<ExportShipment> {
         let mut shipment = self.get(tenant_id, id).await?;
-        if !shipment.status.can_transition_to(ShipmentStatus::Booked) {
+        if !shipment.status.can_transition_to(next) {
             return Err(DomainError::Validation(format!(
-                "cannot book a shipment in status {}",
-                shipment.status.as_str()
+                "cannot move shipment from {} to {}",
+                shipment.status.as_str(),
+                next.as_str()
             )));
         }
-        shipment.status = ShipmentStatus::Booked;
-        let event = booked_outbox(&self.booked_event(&shipment))?;
+        shipment.status = next;
+        let event = shipment_outbox(&self.status_event(&shipment, event_type), subject)?;
         self.repo.save_status(&shipment, &event).await?;
         Ok(shipment)
     }
@@ -121,15 +166,15 @@ impl ShipmentService {
         Ok(Some(shipment))
     }
 
-    fn booked_event(&self, shipment: &ExportShipment) -> ShipmentBooked {
-        ShipmentBooked {
+    fn status_event(&self, shipment: &ExportShipment, event_type: &'static str) -> ShipmentEvent {
+        ShipmentEvent {
             header: EventHeader::new(
                 Uuid::now_v7(),
                 self.clock.now_utc(),
                 shipment.tenant_id.0.clone(),
                 "export_shipment",
                 shipment.id.to_string(),
-                "ShipmentBooked",
+                event_type,
                 1,
             ),
             shipment_id: shipment.id.to_string(),
@@ -275,6 +320,62 @@ mod tests {
         // BOOKED -> BOOKED is not a valid transition.
         assert!(matches!(
             svc.book(&TenantId("t1".into()), &s.id).await.unwrap_err(),
+            DomainError::Validation(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn full_lifecycle_book_then_dispatch() {
+        let (svc, repo) = service();
+        let t = TenantId("t1".into());
+        let s = svc
+            .create(&t, "US".into(), "CIF".into(), None)
+            .await
+            .unwrap();
+        svc.book(&t, &s.id).await.unwrap();
+        let dispatched = svc.dispatch(&t, &s.id).await.unwrap();
+        assert_eq!(dispatched.status, ShipmentStatus::Dispatched);
+        assert_eq!(
+            *repo.events.lock().unwrap(),
+            vec![
+                "ShipmentBooked".to_string(),
+                "ShipmentDispatched".to_string()
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatch_rejects_a_draft() {
+        let (svc, _) = service();
+        let t = TenantId("t1".into());
+        let s = svc
+            .create(&t, "US".into(), "CIF".into(), None)
+            .await
+            .unwrap();
+        // DRAFT -> DISPATCHED is invalid (must book first).
+        assert!(matches!(
+            svc.dispatch(&t, &s.id).await.unwrap_err(),
+            DomainError::Validation(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn cancel_from_draft_then_blocks_dispatch() {
+        let (svc, repo) = service();
+        let t = TenantId("t1".into());
+        let s = svc
+            .create(&t, "US".into(), "CIF".into(), None)
+            .await
+            .unwrap();
+        let cancelled = svc.cancel(&t, &s.id).await.unwrap();
+        assert_eq!(cancelled.status, ShipmentStatus::Cancelled);
+        assert_eq!(
+            *repo.events.lock().unwrap(),
+            vec!["ShipmentCancelled".to_string()]
+        );
+        // A cancelled shipment is terminal.
+        assert!(matches!(
+            svc.dispatch(&t, &s.id).await.unwrap_err(),
             DomainError::Validation(_)
         ));
     }

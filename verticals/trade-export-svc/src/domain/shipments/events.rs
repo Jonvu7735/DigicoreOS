@@ -13,11 +13,15 @@ use crate::domain::shared::error::{DomainError, DomainResult};
 /// NATS subjects owned by this vertical (`platform.trade_export.<entity>.<action>`).
 pub mod subjects {
     pub const SHIPMENT_BOOKED: &str = "platform.trade_export.shipment.booked";
+    pub const SHIPMENT_DISPATCHED: &str = "platform.trade_export.shipment.dispatched";
+    pub const SHIPMENT_CANCELLED: &str = "platform.trade_export.shipment.cancelled";
 }
 
-/// An export shipment was booked with a carrier.
+/// A shipment lifecycle transition (booked / dispatched / cancelled). The
+/// `header.event_type` + the publish subject identify which transition occurred;
+/// the payload carries the shipment snapshot consumers need.
 #[derive(Debug, Clone, Serialize)]
-pub struct ShipmentBooked {
+pub struct ShipmentEvent {
     pub header: EventHeader,
     pub shipment_id: String,
     pub reference: String,
@@ -26,8 +30,9 @@ pub struct ShipmentBooked {
     pub order_id: Option<String>,
 }
 
-/// Convert a `ShipmentBooked` into an outbox message (header + JSON payload).
-pub fn booked_outbox(event: &ShipmentBooked) -> DomainResult<OutboxMessage> {
+/// Convert a `ShipmentEvent` into an outbox message (header + JSON payload),
+/// published on `subject`.
+pub fn shipment_outbox(event: &ShipmentEvent, subject: &str) -> DomainResult<OutboxMessage> {
     let payload = serde_json::to_value(event)
         .map_err(|e| DomainError::Internal(format!("event serialize failed: {e}")))?;
     Ok(OutboxMessage {
@@ -38,7 +43,7 @@ pub fn booked_outbox(event: &ShipmentBooked) -> DomainResult<OutboxMessage> {
         aggregate_id: event.header.aggregate_id.clone(),
         event_type: event.header.event_type.clone(),
         version: event.header.version,
-        subject: subjects::SHIPMENT_BOOKED.to_string(),
+        subject: subject.to_string(),
         payload,
     })
 }

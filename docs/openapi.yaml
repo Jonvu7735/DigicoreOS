@@ -1436,6 +1436,44 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         default: { $ref: '#/components/responses/Error' }
 
+  /api/v1/trade-export/shipments/{shipment_id}/dispatch:
+    parameters:
+      - name: shipment_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [TradeExport]
+      summary: Dispatch a booked shipment (BOOKED→DISPATCHED, emits ShipmentDispatched)
+      operationId: dispatchShipment
+      responses:
+        '200':
+          description: Dispatched
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Shipment' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /api/v1/trade-export/shipments/{shipment_id}/cancel:
+    parameters:
+      - name: shipment_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [TradeExport]
+      summary: Cancel a draft or booked shipment (→CANCELLED, emits ShipmentCancelled)
+      operationId: cancelShipment
+      responses:
+        '200':
+          description: Cancelled
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Shipment' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        default: { $ref: '#/components/responses/Error' }
+
   # ───────────────────────── Retail (vertical) ─────────────────────────
   /api/v1/retail/loyalty:
     get:
