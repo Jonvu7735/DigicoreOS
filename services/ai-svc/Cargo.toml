@@ -30,3 +30,5 @@ chrono = { workspace = true }
 sqlx = { workspace = true }
 tracing = { workspace = true }
 metrics = { workspace = true }
+# Real LLM adapter (infra/ai/claude_assistant.rs) — outbound HTTPS to the model API.
+reqwest = { workspace = true }

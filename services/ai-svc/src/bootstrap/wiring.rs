@@ -19,6 +19,7 @@ use crate::domain::insights::ports::{InsightGenerator, InsightRepository};
 use crate::domain::insights::services::InsightService;
 use crate::domain::shared::types::Clock;
 use crate::infra;
+use crate::infra::ai::claude_assistant::ClaudeAssistant;
 use crate::infra::ai::stub_assistant::StubAssistant;
 use crate::infra::ai::stub_generator::StubInsightGenerator;
 use crate::infra::db::insight_repo_pg::PgInsightRepo;
@@ -58,9 +59,22 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
     let clock: Arc<dyn Clock> = Arc::new(SystemClock);
     let insights = Arc::new(InsightService::new(insight_repo, generator, clock));
 
-    // Assistant engine (query/assist): a deterministic stub behind the Assistant
-    // port, same arrangement as the insight generator.
-    let assistant_engine: Arc<dyn Assistant> = Arc::new(StubAssistant);
+    // Assistant engine (query/assist): the real LLM adapter when an API key + model
+    // are configured, else the deterministic stub — both behind the Assistant port.
+    let assistant_engine: Arc<dyn Assistant> = match (&config.ai.api_key, &config.ai.model) {
+        (Some(api_key), Some(model)) => {
+            tracing::info!("assistant: using LLM adapter (model configured via AI_MODEL)");
+            Arc::new(ClaudeAssistant::new(
+                api_key.clone(),
+                model.clone(),
+                config.ai.base_url.clone(),
+            ))
+        }
+        _ => {
+            tracing::info!("assistant: using deterministic stub (set ANTHROPIC_API_KEY + AI_MODEL to enable the LLM)");
+            Arc::new(StubAssistant)
+        }
+    };
     let assistant = Arc::new(AssistantService::new(assistant_engine));
 
     // Outbox relay (DATA-STRATEGY.md §3.2): ai-svc publishes AiInsightGenerated.

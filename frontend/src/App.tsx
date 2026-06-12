@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import { ProtectedRoute } from "./components/ProtectedRoute";
+import { AssistantPage } from "./pages/AssistantPage";
 import { DemoPage } from "./pages/DemoPage";
 import { HomePage } from "./pages/HomePage";
 import { LoginPage } from "./pages/LoginPage";
@@ -19,6 +20,7 @@ export default function App() {
         <Route path="/loyalty/:customerId" element={<LoyaltyDetailPage />} />
         <Route path="/shipments" element={<ShipmentsPage />} />
         <Route path="/shipments/:id" element={<ShipmentDetailPage />} />
+        <Route path="/assistant" element={<AssistantPage />} />
         <Route path="/demo" element={<DemoPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

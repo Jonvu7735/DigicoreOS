@@ -84,6 +84,9 @@ sqlx = { version = "0.8", default-features = false, features = [
 ] }
 async-nats = "0.49"  # >=0.47 drops vulnerable rustls-webpki 0.102 + rustls-pemfile
 futures = "0.3"   # Stream combinators for the reporting-svc event consumer
+# Outbound HTTPS for the ai-svc LLM adapter. rustls (no OpenSSL) reuses the TLS
+# stack sqlx/async-nats already pull in; json for request/response bodies.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 # --- security (infra layer ONLY) ---
 jsonwebtoken = "9"

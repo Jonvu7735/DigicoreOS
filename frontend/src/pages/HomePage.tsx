@@ -27,6 +27,9 @@ export function HomePage() {
         <Link className="tile" to="/shipments">
           Shipments (Trade-export)
         </Link>
+        <Link className="tile" to="/assistant">
+          Trợ lý AI
+        </Link>
       </nav>
     </main>
   );
