@@ -1,0 +1,93 @@
+# ---------------------------------------------------------------------------
+# Network segmentation for the digicore namespace (SECURITY.md §5.1: "traffic
+# nội bộ giữa service — tối thiểu giới hạn bằng network policy"). Default-deny
+# ingress, then allow only the paths the platform actually uses:
+#
+#   internet ──(ingress-nginx)──▶ services :808x ──▶ postgres :5432, nats :4222
+#
+# Services don't call each other directly (each verifies JWT locally with the
+# public key), so no service-to-service rule is needed — keeping the allowlist
+# tight. Verticals (verticals/*, when added) that talk to postgres/nats must be
+# added to the `app In (...)` lists below.
+#
+# Requires a CNI that enforces NetworkPolicy (Calico, Cilium, Weave, ...); with a
+# no-op CNI these objects are inert. Egress is left unrestricted on purpose so
+# DNS and ai-svc's outbound calls keep working — tighten per-workload if your
+# threat model needs it. Kubelet probes / `kubectl port-forward` originate from
+# the node; mainstream CNIs exempt host→pod traffic, but on strict setups add an
+# ingress rule for the node range.
+# ---------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: digicore
+spec:
+  # Empty podSelector = every pod in the namespace. With no ingress rules, all
+  # inbound traffic is denied unless another policy explicitly allows it.
+  podSelector: {}
+  policyTypes: [Ingress]
+---
+# The six services accept HTTP only from the ingress controller (north-south
+# entry via 50-ingress.yaml). Each pod listens on just its own port; listing the
+# whole 8081-8086 range keeps this to one rule (a pod ignores ports it doesn't
+# bind).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-services-from-ingress
+  namespace: digicore
+spec:
+  podSelector:
+    matchExpressions:
+      - { key: app, operator: In, values: [auth-svc, core-erp-svc, crm-svc, hrm-svc, reporting-svc, ai-svc] }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        # Adjust to wherever ingress-nginx runs. kubernetes.io/metadata.name is
+        # the immutable namespace label the API server sets on every namespace.
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: ingress-nginx }
+      ports:
+        - { protocol: TCP, port: 8081 }
+        - { protocol: TCP, port: 8082 }
+        - { protocol: TCP, port: 8083 }
+        - { protocol: TCP, port: 8084 }
+        - { protocol: TCP, port: 8085 }
+        - { protocol: TCP, port: 8086 }
+---
+# Postgres accepts connections only from the platform services.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-postgres-from-services
+  namespace: digicore
+spec:
+  podSelector:
+    matchLabels: { app: postgres }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - { key: app, operator: In, values: [auth-svc, core-erp-svc, crm-svc, hrm-svc, reporting-svc, ai-svc] }
+      ports:
+        - { protocol: TCP, port: 5432 }
+---
+# NATS accepts client connections only from the platform services.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-nats-from-services
+  namespace: digicore
+spec:
+  podSelector:
+    matchLabels: { app: nats }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - { key: app, operator: In, values: [auth-svc, core-erp-svc, crm-svc, hrm-svc, reporting-svc, ai-svc] }
+      ports:
+        - { protocol: TCP, port: 4222 }
