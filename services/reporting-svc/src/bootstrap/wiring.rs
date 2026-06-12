@@ -13,6 +13,7 @@ use platform_events::{connect_consumer, InboundEventHandler, NatsConsumer};
 
 use crate::api;
 use crate::bootstrap::config::AppConfig;
+use crate::domain::attendance::ports::AttendanceProjection;
 use crate::domain::customers::ports::CustomersProjection;
 use crate::domain::deals::ports::DealsProjection;
 use crate::domain::employees::ports::EmployeesProjection;
@@ -23,6 +24,7 @@ use crate::domain::sales::ports::SalesProjection;
 use crate::domain::shared::types::Clock;
 use crate::domain::snapshots::services::SnapshotService;
 use crate::infra;
+use crate::infra::db::attendance_repo_pg::PgAttendanceRepo;
 use crate::infra::db::customers_repo_pg::PgCustomersRepo;
 use crate::infra::db::deals_repo_pg::PgDealsRepo;
 use crate::infra::db::employees_repo_pg::PgEmployeesRepo;
@@ -52,6 +54,8 @@ pub struct AppState {
     pub deals: Arc<dyn DealsProjection>,
     /// Inventory read model (stock-on-hand per product, summed from StockAdjusted).
     pub inventory: Arc<dyn InventoryProjection>,
+    /// Attendance read model (employee-days, projected from AttendanceRecorded).
+    pub attendance: Arc<dyn AttendanceProjection>,
     pub snapshots: Arc<SnapshotService>,
 }
 
@@ -77,6 +81,7 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
     let employees: Arc<dyn EmployeesProjection> = Arc::new(PgEmployeesRepo::new(db.clone()));
     let deals: Arc<dyn DealsProjection> = Arc::new(PgDealsRepo::new(db.clone()));
     let inventory: Arc<dyn InventoryProjection> = Arc::new(PgInventoryRepo::new(db.clone()));
+    let attendance: Arc<dyn AttendanceProjection> = Arc::new(PgAttendanceRepo::new(db.clone()));
     let ingestor: Arc<dyn InboundEventHandler> = Arc::new(EventIngestor::new(
         sales.clone(),
         orders.clone(),
@@ -84,6 +89,7 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
         employees.clone(),
         deals.clone(),
         inventory.clone(),
+        attendance.clone(),
     ));
 
     let clock: Arc<dyn Clock> = Arc::new(SystemClock);
@@ -117,6 +123,7 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
         employees,
         deals,
         inventory,
+        attendance,
         snapshots,
     })
 }

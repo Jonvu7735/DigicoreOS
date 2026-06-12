@@ -6,9 +6,11 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use event_models::crm::{subjects as crm_subjects, CustomerCreated, DealCreated, DealStageChanged};
 use event_models::erp::{subjects, OrderCreated, OrderPaid, StockAdjusted};
-use event_models::hrm::{subjects as hrm_subjects, EmployeeHired};
+use event_models::hrm::{subjects as hrm_subjects, AttendanceRecorded, EmployeeHired};
 use platform_events::{HandlerError, HandlerResult, InboundEventHandler};
 
+use crate::domain::attendance::entities::NewAttendanceFact;
+use crate::domain::attendance::ports::AttendanceProjection;
 use crate::domain::customers::entities::NewCustomerFact;
 use crate::domain::customers::ports::CustomersProjection;
 use crate::domain::deals::entities::{DealStageChange, NewDealFact};
@@ -29,6 +31,7 @@ pub struct EventIngestor {
     employees: Arc<dyn EmployeesProjection>,
     deals: Arc<dyn DealsProjection>,
     inventory: Arc<dyn InventoryProjection>,
+    attendance: Arc<dyn AttendanceProjection>,
 }
 
 impl EventIngestor {
@@ -39,6 +42,7 @@ impl EventIngestor {
         employees: Arc<dyn EmployeesProjection>,
         deals: Arc<dyn DealsProjection>,
         inventory: Arc<dyn InventoryProjection>,
+        attendance: Arc<dyn AttendanceProjection>,
     ) -> Self {
         Self {
             sales,
@@ -47,6 +51,7 @@ impl EventIngestor {
             employees,
             deals,
             inventory,
+            attendance,
         }
     }
 }
@@ -148,6 +153,19 @@ impl InboundEventHandler for EventIngestor {
                 )
                 .await
                 .map_err(|e| HandlerError(e.to_string()))?;
+        } else if subject == hrm_subjects::ATTENDANCE_RECORDED {
+            let event: AttendanceRecorded = serde_json::from_slice(payload)
+                .map_err(|e| HandlerError(format!("malformed AttendanceRecorded payload: {e}")))?;
+            self.attendance
+                .apply_attendance_recorded(&NewAttendanceFact {
+                    tenant_id: TenantId(event.header.tenant_id),
+                    employee_id: event.employee_id,
+                    work_date: event.date,
+                    check_in: event.check_in,
+                    check_out: event.check_out,
+                })
+                .await
+                .map_err(|e| HandlerError(e.to_string()))?;
         }
         // Other subjects are not yet projected; ignored so the consumer keeps
         // draining the bus.
@@ -165,6 +183,7 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
+    use crate::domain::attendance::entities::AttendanceSummary;
     use crate::domain::customers::entities::ReportedCustomer;
     use crate::domain::deals::entities::StageCount;
     use crate::domain::employees::entities::ReportedEmployee;
@@ -327,6 +346,27 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct FakeAttendance {
+        applied: Mutex<Vec<(String, String)>>,
+    }
+    #[async_trait]
+    impl AttendanceProjection for FakeAttendance {
+        async fn apply_attendance_recorded(&self, rec: &NewAttendanceFact) -> DomainResult<()> {
+            self.applied
+                .lock()
+                .unwrap()
+                .push((rec.employee_id.clone(), rec.work_date.clone()));
+            Ok(())
+        }
+        async fn summary(&self, _t: &TenantId) -> DomainResult<AttendanceSummary> {
+            Ok(AttendanceSummary {
+                record_count: 0,
+                present_employees: 0,
+            })
+        }
+    }
+
     type Fakes = (
         EventIngestor,
         Arc<FakeSales>,
@@ -335,6 +375,7 @@ mod tests {
         Arc<FakeEmployees>,
         Arc<FakeDeals>,
         Arc<FakeInventory>,
+        Arc<FakeAttendance>,
     );
 
     fn ingestor() -> Fakes {
@@ -344,6 +385,7 @@ mod tests {
         let employees = Arc::new(FakeEmployees::default());
         let deals = Arc::new(FakeDeals::default());
         let inventory = Arc::new(FakeInventory::default());
+        let attendance = Arc::new(FakeAttendance::default());
         (
             EventIngestor::new(
                 sales.clone(),
@@ -352,6 +394,7 @@ mod tests {
                 employees.clone(),
                 deals.clone(),
                 inventory.clone(),
+                attendance.clone(),
             ),
             sales,
             orders,
@@ -359,6 +402,7 @@ mod tests {
             employees,
             deals,
             inventory,
+            attendance,
         )
     }
 
@@ -502,9 +546,30 @@ mod tests {
         event.payload_json().unwrap()
     }
 
+    fn attendance_recorded_bytes(tenant: &str, employee_id: &str, date: &str) -> Vec<u8> {
+        let header = EventHeader::new(
+            Uuid::now_v7(),
+            Utc::now(),
+            tenant.to_string(),
+            "attendance",
+            employee_id.to_string(),
+            "AttendanceRecorded",
+            1,
+        );
+        let event = event_models::hrm::HrmEvent::AttendanceRecorded(AttendanceRecorded {
+            header,
+            employee_id: employee_id.into(),
+            date: date.into(),
+            check_in: Some("09:00:00".into()),
+            check_out: None,
+        });
+        event.payload_json().unwrap()
+    }
+
     #[tokio::test]
     async fn applies_order_paid_to_sales() {
-        let (ingestor, sales, _orders, _customers, _employees, _deals, _inventory) = ingestor();
+        let (ingestor, sales, _orders, _customers, _employees, _deals, _inventory, _attendance) =
+            ingestor();
         let (event_id, bytes) = order_paid_bytes("t1", 4200);
 
         ingestor.handle(subjects::ORDER_PAID, &bytes).await.unwrap();
@@ -516,7 +581,8 @@ mod tests {
 
     #[tokio::test]
     async fn applies_order_created_to_orders() {
-        let (ingestor, _sales, orders, _customers, _employees, _deals, _inventory) = ingestor();
+        let (ingestor, _sales, orders, _customers, _employees, _deals, _inventory, _attendance) =
+            ingestor();
 
         ingestor
             .handle(
@@ -533,7 +599,8 @@ mod tests {
 
     #[tokio::test]
     async fn applies_customer_created_to_customers() {
-        let (ingestor, _sales, _orders, customers, _employees, _deals, _inventory) = ingestor();
+        let (ingestor, _sales, _orders, customers, _employees, _deals, _inventory, _attendance) =
+            ingestor();
 
         ingestor
             .handle(
@@ -550,7 +617,8 @@ mod tests {
 
     #[tokio::test]
     async fn applies_employee_hired_to_employees() {
-        let (ingestor, _sales, _orders, _customers, employees, _deals, _inventory) = ingestor();
+        let (ingestor, _sales, _orders, _customers, employees, _deals, _inventory, _attendance) =
+            ingestor();
 
         ingestor
             .handle(
@@ -567,7 +635,8 @@ mod tests {
 
     #[tokio::test]
     async fn applies_deal_events_to_deals() {
-        let (ingestor, _sales, _orders, _customers, _employees, deals, _inventory) = ingestor();
+        let (ingestor, _sales, _orders, _customers, _employees, deals, _inventory, _attendance) =
+            ingestor();
 
         ingestor
             .handle(
@@ -596,7 +665,8 @@ mod tests {
 
     #[tokio::test]
     async fn applies_stock_adjusted_to_inventory() {
-        let (ingestor, _sales, _orders, _customers, _employees, _deals, inventory) = ingestor();
+        let (ingestor, _sales, _orders, _customers, _employees, _deals, inventory, _attendance) =
+            ingestor();
 
         ingestor
             .handle(
@@ -612,8 +682,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn applies_attendance_recorded_to_attendance() {
+        let (ingestor, _sales, _orders, _customers, _employees, _deals, _inventory, attendance) =
+            ingestor();
+
+        ingestor
+            .handle(
+                hrm_subjects::ATTENDANCE_RECORDED,
+                &attendance_recorded_bytes("t1", "e9", "2026-06-12"),
+            )
+            .await
+            .unwrap();
+
+        let applied = attendance.applied.lock().unwrap();
+        assert_eq!(applied.len(), 1);
+        assert_eq!(applied[0], ("e9".to_string(), "2026-06-12".to_string()));
+    }
+
+    #[tokio::test]
     async fn ignores_unprojected_subjects() {
-        let (ingestor, sales, orders, customers, employees, deals, inventory) = ingestor();
+        let (ingestor, sales, orders, customers, employees, deals, inventory, attendance) =
+            ingestor();
 
         // A subject we don't project yet is a no-op (not an error).
         ingestor
@@ -630,11 +719,12 @@ mod tests {
         assert!(deals.created.lock().unwrap().is_empty());
         assert!(deals.changed.lock().unwrap().is_empty());
         assert!(inventory.applied.lock().unwrap().is_empty());
+        assert!(attendance.applied.lock().unwrap().is_empty());
     }
 
     #[tokio::test]
     async fn rejects_malformed_payload() {
-        let (ingestor, _s, _o, _c, _e, _d, _i) = ingestor();
+        let (ingestor, _s, _o, _c, _e, _d, _i, _a) = ingestor();
         let err = ingestor
             .handle(subjects::ORDER_PAID, b"not json")
             .await
