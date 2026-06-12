@@ -130,6 +130,19 @@ jobs:
   vertical-trade-export:
     name: vertical (trade-export)
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: digicore
+          POSTGRES_PASSWORD: digicore
+          POSTGRES_DB: digicore
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U digicore"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -157,12 +170,29 @@ jobs:
       - name: Clippy (deny warnings)
         run: cargo clippy --manifest-path verticals/trade-export-svc/Cargo.toml --all-targets -- -D warnings
 
+      # DB-gated integration tests (src/it.rs) run against the Postgres service;
+      # DB-free unit tests simply re-run.
       - name: Test
+        env:
+          TEST_DATABASE_URL: postgres://digicore:digicore@localhost:5432/digicore
         run: cargo test --manifest-path verticals/trade-export-svc/Cargo.toml
 
   vertical-retail:
     name: vertical (retail)
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: digicore
+          POSTGRES_PASSWORD: digicore
+          POSTGRES_DB: digicore
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U digicore"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -188,7 +218,11 @@ jobs:
       - name: Clippy (deny warnings)
         run: cargo clippy --manifest-path verticals/retail-svc/Cargo.toml --all-targets -- -D warnings
 
+      # DB-gated integration tests (src/it.rs) run against the Postgres service;
+      # DB-free unit tests simply re-run.
       - name: Test
+        env:
+          TEST_DATABASE_URL: postgres://digicore:digicore@localhost:5432/digicore
         run: cargo test --manifest-path verticals/retail-svc/Cargo.toml
 
   openapi-contract:
