@@ -55,6 +55,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Register a new tenant + owner user, returning a token pair */
+        post: operations["authRegister"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/me": {
         parameters: {
             query?: never;
@@ -619,7 +636,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/hrm/leaves/{leave_id}": {
+    "/api/v1/hrm/leave/{leave_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                leave_id: components["parameters"]["LeaveId"];
+            };
+            cookie?: never;
+        };
+        /** Get a leave request */
+        get: operations["getLeave"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hrm/leave/{leave_id}/approve": {
         parameters: {
             query?: never;
             header?: never;
@@ -630,12 +666,31 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post?: never;
+        /** Approve a leave request */
+        post: operations["approveLeave"];
         delete?: never;
         options?: never;
         head?: never;
-        /** Update or approve/reject a leave request */
-        patch: operations["updateLeave"];
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hrm/leave/{leave_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                leave_id: components["parameters"]["LeaveId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reject a leave request */
+        post: operations["rejectLeave"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/reporting/overview": {
@@ -819,6 +874,23 @@ export interface paths {
         put?: never;
         /** Generate an insight (revenue analysis, at-risk customers, ...) */
         post: operations["aiInsight"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai/insights": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List generated insights */
+        get: operations["listAiInsights"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1022,6 +1094,16 @@ export interface components {
         };
         RefreshRequest: {
             refresh_token: string;
+        };
+        RegisterRequest: {
+            tenant_name: string;
+            /** @description Subscription plan; defaults to 'free'. */
+            plan?: string;
+            /** Format: email */
+            email: string;
+            /** Format: password */
+            password: string;
+            display_name: string;
         };
         TokenPair: {
             access_token: string;
@@ -1372,6 +1454,17 @@ export interface components {
             name?: string;
             enabled?: boolean;
         };
+        AiInsight: {
+            /** Format: uuid */
+            readonly id?: string;
+            readonly tenant_id?: string;
+            /** @description e.g. sales_anomaly, churn_risk */
+            category?: string;
+            summary?: string;
+            source_ref?: string | null;
+            /** Format: date-time */
+            readonly created_at?: string;
+        };
         /** @enum {string} */
         ShipmentStatus: "DRAFT" | "BOOKED" | "DISPATCHED" | "CANCELLED";
         Shipment: {
@@ -1579,6 +1672,31 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    authRegister: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterRequest"];
+            };
+        };
+        responses: {
+            /** @description Registered */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenPair"];
+                };
             };
             default: components["responses"]["Error"];
         };
@@ -2900,7 +3018,7 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
-    updateLeave: {
+    getLeave: {
         parameters: {
             query?: never;
             header?: never;
@@ -2909,13 +3027,57 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["Leave"];
-            };
-        };
+        requestBody?: never;
         responses: {
-            /** @description Updated */
+            /** @description The leave request */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Leave"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            default: components["responses"]["Error"];
+        };
+    };
+    approveLeave: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                leave_id: components["parameters"]["LeaveId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Approved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Leave"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            default: components["responses"]["Error"];
+        };
+    };
+    rejectLeave: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                leave_id: components["parameters"]["LeaveId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Rejected */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -3185,6 +3347,30 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AiResponse"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    listAiInsights: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["Page"];
+                page_size?: components["parameters"]["PageSize"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Insights */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiInsight"][];
                 };
             };
             default: components["responses"]["Error"];

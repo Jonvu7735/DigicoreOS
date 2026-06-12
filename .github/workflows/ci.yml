@@ -176,6 +176,16 @@ jobs:
       - name: Test
         run: cargo test --manifest-path verticals/retail-svc/Cargo.toml
 
+  openapi-contract:
+    name: openapi contract (routes)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Every /api/v1 route a service actually serves must be in docs/openapi.yaml
+      # (served ⊆ documented). Pure stdlib; no install needed.
+      - name: Served routes are documented
+        run: python3 scripts/check_openapi_routes.py
+
   openapi-client:
     name: openapi client (typescript)
     runs-on: ubuntu-latest
