@@ -7,7 +7,7 @@ use crate::api::http::dto::error::ApiError;
 use crate::api::http::dto::loyalty::{
     LoyaltyAccountResponse, PointsLedgerEntryResponse, RedeemRequest,
 };
-use crate::api::http::dto::pagination::ListQuery;
+use crate::api::http::dto::pagination::{ListQuery, Page};
 use crate::api::http::middleware::{Auth, READ_ROLES, WRITE_ROLES};
 use crate::bootstrap::wiring::AppState;
 use crate::domain::shared::types::TenantId;
@@ -17,18 +17,19 @@ pub async fn list(
     State(state): State<AppState>,
     auth: Auth,
     Query(query): Query<ListQuery>,
-) -> Result<Json<Vec<LoyaltyAccountResponse>>, ApiError> {
+) -> Result<Json<Page<LoyaltyAccountResponse>>, ApiError> {
     auth.require_any_role(&READ_ROLES)?;
     let tenant = TenantId(auth.0.tenant_id);
     let (limit, offset) = query.limit_offset();
-    let accounts = state
+    let (page, page_size) = query.page_meta();
+    let items = state
         .loyalty
         .list(&tenant, limit, offset)
         .await?
         .into_iter()
         .map(LoyaltyAccountResponse::from)
         .collect();
-    Ok(Json(accounts))
+    Ok(Json(Page::new(items, page, page_size)))
 }
 
 /// `GET /api/v1/retail/loyalty/{customer_id}` — one customer's account.
