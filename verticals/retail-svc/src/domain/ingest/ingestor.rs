@@ -23,6 +23,7 @@ pub trait OrderPointsAccruer: Send + Sync {
         event_id: Uuid,
         tenant: &TenantId,
         customer_id: &str,
+        order_id: &str,
         total_amount_minor: i64,
     ) -> DomainResult<bool>;
 }
@@ -34,11 +35,19 @@ impl OrderPointsAccruer for LoyaltyService {
         event_id: Uuid,
         tenant: &TenantId,
         customer_id: &str,
+        order_id: &str,
         total_amount_minor: i64,
     ) -> DomainResult<bool> {
         // Disambiguate to the inherent method of the same name.
-        LoyaltyService::accrue_for_order(self, event_id, tenant, customer_id, total_amount_minor)
-            .await
+        LoyaltyService::accrue_for_order(
+            self,
+            event_id,
+            tenant,
+            customer_id,
+            order_id,
+            total_amount_minor,
+        )
+        .await
     }
 }
 
@@ -63,6 +72,7 @@ impl InboundEventHandler for LoyaltyIngestor {
                     event.header.event_id,
                     &TenantId(event.header.tenant_id),
                     &event.customer_id,
+                    &event.order_id,
                     event.total_amount,
                 )
                 .await
@@ -85,7 +95,7 @@ mod tests {
 
     #[derive(Default)]
     struct FakeAccruer {
-        calls: Mutex<Vec<(String, String, i64)>>,
+        calls: Mutex<Vec<(String, String, String, i64)>>,
     }
     #[async_trait]
     impl OrderPointsAccruer for FakeAccruer {
@@ -94,11 +104,13 @@ mod tests {
             _event_id: Uuid,
             tenant: &TenantId,
             customer_id: &str,
+            order_id: &str,
             total_amount_minor: i64,
         ) -> DomainResult<bool> {
             self.calls.lock().unwrap().push((
                 tenant.0.clone(),
                 customer_id.to_string(),
+                order_id.to_string(),
                 total_amount_minor,
             ));
             Ok(true)
@@ -141,7 +153,15 @@ mod tests {
 
         let calls = accruer.calls.lock().unwrap();
         assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0], ("t1".to_string(), "cust9".to_string(), 5000));
+        assert_eq!(
+            calls[0],
+            (
+                "t1".to_string(),
+                "cust9".to_string(),
+                "o1".to_string(),
+                5000
+            )
+        );
     }
 
     #[tokio::test]

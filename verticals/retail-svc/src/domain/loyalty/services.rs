@@ -6,7 +6,7 @@ use std::sync::Arc;
 use event_models::EventHeader;
 use uuid::Uuid;
 
-use crate::domain::loyalty::entities::LoyaltyAccount;
+use crate::domain::loyalty::entities::{LoyaltyAccount, PointsEntryKind, PointsLedgerEntry};
 use crate::domain::loyalty::events::{redeemed_outbox, PointsRedeemed};
 use crate::domain::loyalty::ports::LoyaltyRepository;
 use crate::domain::shared::error::{DomainError, DomainResult};
@@ -27,11 +27,13 @@ impl LoyaltyService {
 
     /// Accrue points for an order (called by the inbound consumer). Idempotent by
     /// `event_id`; returns whether it was applied (`false` = already processed).
+    /// The `order_id` is recorded as the ledger entry's reason.
     pub async fn accrue_for_order(
         &self,
         event_id: Uuid,
         tenant_id: &TenantId,
         customer_id: &str,
+        order_id: &str,
         total_amount_minor: i64,
     ) -> DomainResult<bool> {
         let customer_id = customer_id.trim();
@@ -40,13 +42,17 @@ impl LoyaltyService {
         }
         let spend = total_amount_minor.max(0);
         let points = spend / MINOR_PER_POINT;
+        let order_id = order_id.trim();
+        let reason = (!order_id.is_empty()).then_some(order_id);
         self.repo
             .accrue(
                 event_id,
+                Uuid::now_v7(),
                 tenant_id,
                 customer_id,
                 spend,
                 points,
+                reason,
                 self.clock.now_utc(),
             )
             .await
@@ -72,6 +78,20 @@ impl LoyaltyService {
         self.repo.list_in_tenant(tenant_id, limit, offset).await
     }
 
+    /// A customer's points history (after confirming the account exists).
+    pub async fn list_ledger(
+        &self,
+        tenant_id: &TenantId,
+        customer_id: &str,
+        limit: i64,
+        offset: i64,
+    ) -> DomainResult<Vec<PointsLedgerEntry>> {
+        self.get(tenant_id, customer_id).await?;
+        self.repo
+            .list_ledger(tenant_id, customer_id, limit, offset)
+            .await
+    }
+
     /// Redeem points from a customer's balance; emits `PointsRedeemed`.
     pub async fn redeem(
         &self,
@@ -91,8 +111,18 @@ impl LoyaltyService {
         }
         account.points_balance -= points;
         account.updated_at = self.clock.now_utc();
+        let entry = PointsLedgerEntry {
+            id: Uuid::now_v7(),
+            tenant_id: account.tenant_id.clone(),
+            customer_id: account.customer_id.clone(),
+            kind: PointsEntryKind::Redeem,
+            points,
+            balance_after: account.points_balance,
+            reason: None,
+            at: account.updated_at,
+        };
         let event = redeemed_outbox(&self.redeemed_event(&account, points))?;
-        self.repo.save_balance(&account, &event).await?;
+        self.repo.save_balance(&account, &entry, &event).await?;
         Ok(account)
     }
 
@@ -129,16 +159,19 @@ mod tests {
         accounts: Mutex<Vec<LoyaltyAccount>>,
         processed: Mutex<Vec<Uuid>>,
         events: Mutex<Vec<String>>,
+        ledger: Mutex<Vec<PointsLedgerEntry>>,
     }
     #[async_trait]
     impl LoyaltyRepository for FakeRepo {
         async fn accrue(
             &self,
             event_id: Uuid,
+            entry_id: Uuid,
             tenant: &TenantId,
             customer_id: &str,
             spend_minor: i64,
             points: i64,
+            reason: Option<&str>,
             now: DateTime<Utc>,
         ) -> DomainResult<bool> {
             let mut processed = self.processed.lock().unwrap();
@@ -147,13 +180,14 @@ mod tests {
             }
             processed.push(event_id);
             let mut accounts = self.accounts.lock().unwrap();
-            if let Some(a) = accounts
+            let balance_after = if let Some(a) = accounts
                 .iter_mut()
                 .find(|a| a.tenant_id == *tenant && a.customer_id == customer_id)
             {
                 a.points_balance += points;
                 a.lifetime_spend_minor += spend_minor;
                 a.updated_at = now;
+                a.points_balance
             } else {
                 accounts.push(LoyaltyAccount {
                     tenant_id: tenant.clone(),
@@ -161,6 +195,19 @@ mod tests {
                     points_balance: points,
                     lifetime_spend_minor: spend_minor,
                     updated_at: now,
+                });
+                points
+            };
+            if points > 0 {
+                self.ledger.lock().unwrap().push(PointsLedgerEntry {
+                    id: entry_id,
+                    tenant_id: tenant.clone(),
+                    customer_id: customer_id.to_string(),
+                    kind: PointsEntryKind::Earn,
+                    points,
+                    balance_after,
+                    reason: reason.map(|s| s.to_string()),
+                    at: now,
                 });
             }
             Ok(true)
@@ -196,6 +243,7 @@ mod tests {
         async fn save_balance(
             &self,
             account: &LoyaltyAccount,
+            entry: &PointsLedgerEntry,
             event: &OutboxMessage,
         ) -> DomainResult<()> {
             let mut accounts = self.accounts.lock().unwrap();
@@ -205,8 +253,25 @@ mod tests {
             {
                 *slot = account.clone();
             }
+            self.ledger.lock().unwrap().push(entry.clone());
             self.events.lock().unwrap().push(event.event_type.clone());
             Ok(())
+        }
+        async fn list_ledger(
+            &self,
+            tenant: &TenantId,
+            customer_id: &str,
+            _l: i64,
+            _o: i64,
+        ) -> DomainResult<Vec<PointsLedgerEntry>> {
+            Ok(self
+                .ledger
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|e| e.tenant_id == *tenant && e.customer_id == customer_id)
+                .cloned()
+                .collect())
         }
     }
 
@@ -230,12 +295,12 @@ mod tests {
 
         // 5000 minor units -> 50 points.
         assert!(svc
-            .accrue_for_order(event_id, &tenant, "cust1", 5000)
+            .accrue_for_order(event_id, &tenant, "cust1", "o1", 5000)
             .await
             .unwrap());
         // Redelivery of the SAME event must not double-credit.
         assert!(!svc
-            .accrue_for_order(event_id, &tenant, "cust1", 5000)
+            .accrue_for_order(event_id, &tenant, "cust1", "o1", 5000)
             .await
             .unwrap());
 
@@ -249,10 +314,10 @@ mod tests {
     async fn accrue_accumulates_across_orders_and_sets_tier() {
         let (svc, _) = service();
         let tenant = TenantId("t1".into());
-        svc.accrue_for_order(Uuid::now_v7(), &tenant, "c", 600_000)
+        svc.accrue_for_order(Uuid::now_v7(), &tenant, "c", "o1", 600_000)
             .await
             .unwrap();
-        svc.accrue_for_order(Uuid::now_v7(), &tenant, "c", 600_000)
+        svc.accrue_for_order(Uuid::now_v7(), &tenant, "c", "o2", 600_000)
             .await
             .unwrap();
         let account = svc.get(&tenant, "c").await.unwrap();
@@ -265,7 +330,7 @@ mod tests {
     async fn redeem_decrements_and_emits_event() {
         let (svc, repo) = service();
         let tenant = TenantId("t1".into());
-        svc.accrue_for_order(Uuid::now_v7(), &tenant, "c", 10_000)
+        svc.accrue_for_order(Uuid::now_v7(), &tenant, "c", "o1", 10_000)
             .await
             .unwrap(); // 100 points
         let account = svc.redeem(&tenant, "c", 30).await.unwrap();
@@ -280,7 +345,7 @@ mod tests {
     async fn redeem_rejects_insufficient_and_nonpositive() {
         let (svc, _) = service();
         let tenant = TenantId("t1".into());
-        svc.accrue_for_order(Uuid::now_v7(), &tenant, "c", 10_000)
+        svc.accrue_for_order(Uuid::now_v7(), &tenant, "c", "o1", 10_000)
             .await
             .unwrap(); // 100 points
         assert!(matches!(
@@ -300,5 +365,51 @@ mod tests {
             svc.get(&TenantId("t1".into()), "nobody").await.unwrap_err(),
             DomainError::NotFound(_)
         ));
+    }
+
+    #[tokio::test]
+    async fn ledger_records_earns_and_redeems() {
+        let (svc, _) = service();
+        let tenant = TenantId("t1".into());
+        svc.accrue_for_order(Uuid::now_v7(), &tenant, "c", "order-7", 10_000)
+            .await
+            .unwrap(); // +100, balance 100
+        svc.redeem(&tenant, "c", 30).await.unwrap(); // -30, balance 70
+
+        let ledger = svc.list_ledger(&tenant, "c", 50, 0).await.unwrap();
+        let rows: Vec<(&str, i64, i64, Option<&str>)> = ledger
+            .iter()
+            .map(|e| {
+                (
+                    e.kind.as_str(),
+                    e.points,
+                    e.balance_after,
+                    e.reason.as_deref(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            rows,
+            vec![
+                ("EARN", 100, 100, Some("order-7")),
+                ("REDEEM", 30, 70, None),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn ledger_skips_zero_point_earns() {
+        let (svc, _) = service();
+        let tenant = TenantId("t1".into());
+        // 50 minor units -> 0 points (below MINOR_PER_POINT): account still gets
+        // the spend, but a points ledger shouldn't show a no-op movement.
+        svc.accrue_for_order(Uuid::now_v7(), &tenant, "c", "tiny", 50)
+            .await
+            .unwrap();
+        assert!(svc
+            .list_ledger(&tenant, "c", 50, 0)
+            .await
+            .unwrap()
+            .is_empty());
     }
 }

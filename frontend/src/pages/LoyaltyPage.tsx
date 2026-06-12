@@ -120,7 +120,15 @@ function LoyaltyRow({
 
   return (
     <tr>
-      <td className="mono">{account.customer_id}</td>
+      <td className="mono">
+        {account.customer_id ? (
+          <Link className="ghost-link" to={`/loyalty/${account.customer_id}`}>
+            {account.customer_id}
+          </Link>
+        ) : (
+          "—"
+        )}
+      </td>
       <td>
         <span className="pill">{account.tier ?? "—"}</span>
       </td>

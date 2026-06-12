@@ -1565,6 +1565,29 @@ paths:
               schema: { $ref: '#/components/schemas/LoyaltyAccount' }
         '404': { $ref: '#/components/responses/NotFound' }
         default: { $ref: '#/components/responses/Error' }
+  /api/v1/retail/loyalty/{customer_id}/ledger:
+    parameters:
+      - name: customer_id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Retail]
+      summary: A customer's points history (newest first)
+      operationId: listLoyaltyLedger
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: The points ledger
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/PointsLedgerEntry' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Error' }
   /api/v1/retail/loyalty/{customer_id}/redeem:
     parameters:
       - name: customer_id
@@ -2219,3 +2242,18 @@ components:
       required: [points]
       properties:
         points: { type: integer, format: int64, minimum: 1 }
+    PointsLedgerEntry:
+      type: object
+      description: One movement in a customer's points history.
+      properties:
+        id: { type: string, format: uuid, readOnly: true }
+        customer_id: { type: string, readOnly: true }
+        kind:
+          type: string
+          enum: [EARN, REDEEM]
+        points: { type: integer, format: int64, description: Positive magnitude of the movement }
+        balance_after: { type: integer, format: int64 }
+        reason:
+          type: [string, "null"]
+          description: Order id for an earn; null for a redeem.
+        at: { type: string, format: date-time, readOnly: true }
