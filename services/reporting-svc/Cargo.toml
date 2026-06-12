@@ -33,3 +33,4 @@ sqlx = { workspace = true }
 tracing = { workspace = true }
 metrics = { workspace = true }
 rust_xlsxwriter = { version = "0.95.0", default-features = false }
+pdf-writer = "0.15.0"
