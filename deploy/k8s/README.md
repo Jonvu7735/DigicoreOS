@@ -10,6 +10,7 @@ NATS (JetStream), plus a Deployment + Service for each of the six services.
 | `20-postgres.yaml` | Postgres Deployment + Service + PVC |
 | `30-nats.yaml` | NATS (JetStream) Deployment + Service |
 | `40-services.yaml` | the six services (Deployment + ClusterIP Service each) |
+| `50-ingress.yaml` | API edge: one HTTPS host routing `/api/v1/<domain>/` to each service, with edge rate limiting |
 
 Each service applies its own migrations on boot (creating its schema first — one
 schema per service in the shared database) and verifies RS256 tokens with the
@@ -48,9 +49,39 @@ kubectl apply -k deploy/k8s            # or: kubectl apply -f deploy/k8s/
 kubectl -n digicore get pods -w
 ```
 
-## 4. Smoke test
+## 4. API edge (Ingress)
+
+`50-ingress.yaml` fronts the six ClusterIP services with a single HTTPS host
+that serves the public `/api/v1/<domain>/` surface (`API-GATEWAY.md`) and
+rate-limits per client IP at the edge (`SECURITY.md §5`). It assumes the
+[ingress-nginx](https://kubernetes.github.io/ingress-nginx/) controller; for a
+different controller, translate the `nginx.ingress.kubernetes.io/*` annotations.
+
+Before applying, set your host and TLS:
 
 ```bash
+# 1. Point the host at your domain (edit both the rule and tls hosts), e.g.:
+sed -i 's/api.digicore.example.com/api.acme.com/g' deploy/k8s/50-ingress.yaml
+
+# 2. Provide the TLS cert as secret `digicore-tls` — either let cert-manager
+#    issue it (uncomment the cluster-issuer annotation) or create it directly:
+kubectl -n digicore create secret tls digicore-tls --cert=tls.crt --key=tls.key
+```
+
+Routing preserves the full path, so each request reaches its service unchanged
+(`/api/v1/erp/orders` → `core-erp-svc`). JWT is still verified per service; the
+edge adds TLS termination and throttling. `/api/v1/auth/login` and
+`/api/v1/auth/refresh` get a tighter limit than the rest of the surface to blunt
+credential stuffing. Tune the `limit-rps` / `limit-rpm` annotations for your
+traffic.
+
+## 5. Smoke test
+
+```bash
+# Through the edge (once DNS + TLS are set up):
+curl https://api.acme.com/api/v1/auth/health
+
+# Or bypass the edge and hit a service directly:
 kubectl -n digicore port-forward svc/auth-svc 8081:8081 &
 curl localhost:8081/api/v1/auth/health
 ```
@@ -62,5 +93,10 @@ curl localhost:8081/api/v1/auth/health
 - **Database**: a single in-cluster Postgres is included for convenience; for
   production prefer a managed/HA database and delete `20-postgres.yaml`, pointing
   `DATABASE_URL` at it.
-- **Ingress**: services are `ClusterIP`. Front them with an Ingress/gateway that
-  routes `/api/v1/<svc>/...` and terminates TLS (out of scope here).
+- **Ingress**: services are `ClusterIP`, fronted by `50-ingress.yaml` (see §4).
+  It needs an ingress controller (ingress-nginx) plus a real host and the
+  `digicore-tls` secret; without a controller the Ingress object is created but
+  inert.
+- **Network policy**: `SECURITY.md §5.1` also calls for restricting service-to-
+  service traffic with a NetworkPolicy (default-deny + explicit allows). Not yet
+  included — a sensible next hardening step.
