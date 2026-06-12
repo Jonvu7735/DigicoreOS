@@ -40,11 +40,6 @@ jsonwebtoken = { workspace = true }
 argon2 = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
-base64ct = { workspace = true }   # pinned for MSRV; transitive dep of argon2
-time = { workspace = true }       # pinned for MSRV; transitive dep of async-nats/sqlx
-home = { workspace = true }       # pinned for MSRV; transitive dep of sqlx
-idna_adapter = { workspace = true } # pinned for MSRV; transitive dep of sqlx (url/idna)
-indexmap = { workspace = true }     # pinned for MSRV; transitive (h2/sqlx)
 
 # observability
 tracing = { workspace = true }

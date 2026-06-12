@@ -20,10 +20,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Pinned via rust-toolchain.toml (1.82.0); ensure rustfmt + clippy exist.
-      - name: Install Rust 1.82.0 (rustfmt, clippy)
+      # Pinned via rust-toolchain.toml (1.96.0); ensure rustfmt + clippy exist.
+      - name: Install Rust 1.96.0 (rustfmt, clippy)
         run: |
-          rustup toolchain install 1.82.0 --profile minimal --component rustfmt --component clippy
+          rustup toolchain install 1.96.0 --profile minimal --component rustfmt --component clippy
           rustc --version
           cargo --version
 
@@ -69,9 +69,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust 1.82.0
+      - name: Install Rust 1.96.0
         run: |
-          rustup toolchain install 1.82.0 --profile minimal
+          rustup toolchain install 1.96.0 --profile minimal
           rustc --version
 
       - name: Cache cargo registry & build
@@ -96,11 +96,9 @@ jobs:
   supply-chain:
     name: cargo-deny
     runs-on: ubuntu-latest
-    # cargo-deny shells out to `cargo metadata`, which parses EVERY platform's
-    # manifests (e.g. the Apple-only security-framework) — some now require
-    # Cargo's `edition2024`, unsupported by our MSRV 1.82. This job only analyses
-    # the dependency graph (it never builds our code, so MSRV is unaffected), so
-    # use stable cargo for it. RUSTUP_TOOLCHAIN overrides rust-toolchain.toml.
+    # cargo-deny only analyses the dependency graph (it never builds our code),
+    # so pin it to stable cargo — manifest parsing then always understands the
+    # latest edition regardless of rust-toolchain.toml. RUSTUP_TOOLCHAIN overrides it.
     env:
       RUSTUP_TOOLCHAIN: stable
     steps:

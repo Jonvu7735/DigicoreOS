@@ -32,7 +32,7 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.82"
+rust-version = "1.96"
 publish = false
 
 [workspace.dependencies]
@@ -80,7 +80,7 @@ sqlx = { version = "0.8", default-features = false, features = [
     "migrate",
     "macros", # for the `sqlx::migrate!` embed macro (NOT compile-time query checks)
 ] }
-async-nats = "0.38"
+async-nats = "0.49"  # >=0.47 drops vulnerable rustls-webpki 0.102 + rustls-pemfile
 futures = "0.3"   # Stream combinators for the reporting-svc event consumer
 
 # --- security (infra layer ONLY) ---
@@ -93,10 +93,7 @@ hex = "0.4"
 rsa = { version = "0.9", features = ["pem"] }
 rand = "0.8"
 
-# --- transitive pins for rustc 1.82 (MSRV). Newer releases of these crates
-# --- require a newer compiler/edition; revisit when bumping the toolchain.
-base64ct = "=1.6.0"
-time = "=0.3.36"
-home = "=0.5.11"
-idna_adapter = "=1.2.0"
-indexmap = "=2.7.1"
+# The transitive MSRV pins for rustc 1.82 (base64ct/time/home/idna_adapter/
+# indexmap) were dropped when the toolchain moved to 1.96: cargo's MSRV-aware
+# resolver now picks compatible versions, and `time` floats to >=0.3.47, which
+# clears RUSTSEC-2026-0009.
