@@ -3,6 +3,7 @@
 pub mod crm_funnel;
 pub mod customers;
 pub mod employees;
+pub mod export;
 pub mod health;
 pub mod hrm_summary;
 pub mod inventory_summary;
