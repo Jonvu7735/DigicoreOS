@@ -97,7 +97,7 @@ cargo test --workspace
 
 CI (`.github/workflows/ci.yml`) runs exactly these three on every PR. Unit tests
 are DB-free (domain logic against fake ports + an RS256 round-trip); DB-backed
-integration tests are gated behind `TEST_DATABASE_URL`. MSRV is Rust 1.82
+integration tests are gated behind `TEST_DATABASE_URL`. MSRV is Rust 1.96
 (`rust-toolchain.toml`).
 
 ## Status

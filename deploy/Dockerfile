@@ -5,7 +5,7 @@
 # SQL migrations are embedded into the binary at compile time
 # (`sqlx::migrate!("./migrations")`), so the runtime image needs no SQL files.
 
-FROM rust:1.82-slim AS builder
+FROM rust:1.96-slim AS builder
 ARG SERVICE
 # Build deps for ring (transitive via jsonwebtoken/rustls): a C toolchain + perl.
 RUN apt-get update \
