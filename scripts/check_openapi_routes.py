@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """OpenAPI contract guard.
 
-Every route a service actually serves under /api/v1 must be documented in
-docs/openapi.yaml. This is ONE-directional (served ⊆ documented): the spec may
-also document not-yet-implemented routes (it's the forward contract), but it must
-never omit a route that already exists — otherwise the generated client and any
-consumer are blind to it.
+The business routes served under /api/v1 must match docs/openapi.yaml EXACTLY
+(served == documented), checked both ways:
+  - served ⊄ documented -> a route exists with no spec entry, so the generated
+    client and any consumer are blind to it;
+  - documented ⊄ served -> the spec promises an endpoint no service implements.
+Keeping the two equal stops the spec drifting ahead of (or behind) the code.
 
 Pure stdlib (no PyYAML) so CI needs no extra install. Run from the repo root:
 
@@ -48,18 +49,30 @@ def documented_paths():
 
 def main():
     documented = documented_paths()
-    served = served_routes()
-    violations = sorted((path, f) for (f, path) in served if path not in documented)
+    served_pairs = served_routes()
+    served = {path for (_f, path) in served_pairs}
 
-    print(f"served business routes: {len(served)} | documented paths: {len(documented)}")
-    if violations:
-        print(f"\nERROR: {len(violations)} served route(s) missing from docs/openapi.yaml:")
-        for path, f in violations:
+    undocumented = sorted((path, f) for (f, path) in served_pairs if path not in documented)
+    unserved = sorted(documented - served)
+
+    print(f"served business routes: {len(served_pairs)} | documented paths: {len(documented)}")
+    ok = True
+    if undocumented:
+        ok = False
+        print(f"\nERROR: {len(undocumented)} served route(s) missing from docs/openapi.yaml:")
+        for path, f in undocumented:
             print(f"  {path}   (served by {f})")
         print("\nDocument them in docs/openapi.yaml, then regenerate the TS client")
         print("(cd clients/typescript && npm run generate).")
+    if unserved:
+        ok = False
+        print(f"\nERROR: {len(unserved)} documented path(s) not served by any route:")
+        for path in unserved:
+            print(f"  {path}")
+        print("\nImplement them (route + handler), or remove them from docs/openapi.yaml.")
+    if not ok:
         sys.exit(1)
-    print("OK: every served /api/v1 route is documented.")
+    print("OK: served /api/v1 routes and documented paths match exactly.")
 
 
 if __name__ == "__main__":

@@ -39,7 +39,13 @@ pub fn router(state: AppState) -> Router {
                 .patch(handlers::users::update)
                 .delete(handlers::users::deactivate),
         )
-        // --- tenant management (own tenant, RBAC-guarded, API-GATEWAY.md §3.3) ---
+        // --- tenant management (API-GATEWAY.md §3.3) ---
+        // Collection ops are platform super-admin (auth_tenant_manage); the
+        // {tenant_id} ops are scoped to the caller's own tenant.
+        .route(
+            "/tenants",
+            get(handlers::tenants::list).post(handlers::tenants::create),
+        )
         .route(
             "/tenants/{tenant_id}",
             get(handlers::tenants::get).patch(handlers::tenants::update),

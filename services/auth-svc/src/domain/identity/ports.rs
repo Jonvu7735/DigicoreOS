@@ -8,7 +8,7 @@ use chrono::{DateTime, Utc};
 use platform_outbox::OutboxMessage;
 
 use crate::domain::identity::entities::{RefreshToken, Role, Tenant, User};
-use crate::domain::identity::provisioning::TenantProvisioning;
+use crate::domain::identity::provisioning::{NewRole, TenantProvisioning};
 use crate::domain::shared::error::DomainResult;
 use crate::domain::shared::types::{Email, TenantId, UserId};
 
@@ -39,6 +39,8 @@ pub trait TenantRepository: Send + Sync {
     async fn find_by_id(&self, id: &TenantId) -> DomainResult<Option<Tenant>>;
     async fn insert(&self, tenant: &Tenant) -> DomainResult<()>;
     async fn update(&self, tenant: &Tenant) -> DomainResult<()>;
+    /// All tenants, newest first (paginated). Platform super-admin listing.
+    async fn list(&self, limit: i64, offset: i64) -> DomainResult<Vec<Tenant>>;
 }
 
 #[async_trait]
@@ -68,6 +70,15 @@ pub trait ProvisioningRepository: Send + Sync {
     /// Tenant + owner + default roles/permissions + owner role assignment, plus
     /// `spec.events`, in one transaction.
     async fn provision_tenant(&self, spec: &TenantProvisioning) -> DomainResult<()>;
+    /// An owner-less tenant + its default roles/permissions + `events`, in one
+    /// transaction. Used by the platform super-admin to create a tenant shell
+    /// (users are added afterwards via `provision_user_in_tenant`).
+    async fn provision_tenant_shell(
+        &self,
+        tenant: &Tenant,
+        roles: &[NewRole],
+        events: &[OutboxMessage],
+    ) -> DomainResult<()>;
     /// Create `user`, assign `role_name` within `tenant`, and enqueue `events`,
     /// in one transaction. `NotFound` if the role is absent in the tenant.
     async fn provision_user_in_tenant(

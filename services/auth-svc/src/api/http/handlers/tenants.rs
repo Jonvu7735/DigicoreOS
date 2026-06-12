@@ -1,10 +1,13 @@
 //! Tenant-management handlers (API-GATEWAY.md §3.3). Scoped to the caller's own
 //! tenant; cross-tenant (super-admin) access is a later concern.
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
+use axum::http::StatusCode;
 use axum::Json;
 
-use crate::api::http::dto::auth::{TenantResponse, UpdateTenantRequest};
+use crate::api::http::dto::auth::{
+    CreateTenantRequest, ListQuery, TenantResponse, UpdateTenantRequest,
+};
 use crate::api::http::dto::error::ApiError;
 use crate::api::http::middleware::AuthContext;
 use crate::bootstrap::wiring::AppState;
@@ -30,6 +33,38 @@ fn ensure_own_tenant(ctx: &AuthContext, path_tenant: &str) -> Result<(), ApiErro
     } else {
         Err(DomainError::NotFound(format!("tenant {path_tenant}")).into())
     }
+}
+
+/// `GET /api/v1/auth/tenants` (`auth_tenant_manage`) — list all tenants. This is
+/// a platform super-admin operation (cross-tenant), so it is gated on
+/// `auth_tenant_manage`, which only the SUPER_ADMIN role holds.
+pub async fn list(
+    State(state): State<AppState>,
+    ctx: AuthContext,
+    Query(query): Query<ListQuery>,
+) -> Result<Json<Vec<TenantResponse>>, ApiError> {
+    ctx.require_permission("auth_tenant_manage")?;
+    let (limit, offset) = query.limit_offset();
+    let tenants = state
+        .identity
+        .list_tenants(limit, offset)
+        .await?
+        .into_iter()
+        .map(tenant_response)
+        .collect();
+    Ok(Json(tenants))
+}
+
+/// `POST /api/v1/auth/tenants` (`auth_tenant_manage`) — create a tenant
+/// (platform super-admin). Default roles are seeded so the tenant is usable.
+pub async fn create(
+    State(state): State<AppState>,
+    ctx: AuthContext,
+    Json(body): Json<CreateTenantRequest>,
+) -> Result<(StatusCode, Json<TenantResponse>), ApiError> {
+    ctx.require_permission("auth_tenant_manage")?;
+    let tenant = state.identity.create_tenant(body.name, body.plan).await?;
+    Ok((StatusCode::CREATED, Json(tenant_response(tenant))))
 }
 
 /// `GET /api/v1/auth/tenants/{tenant_id}` (`auth_tenant_read`).
