@@ -229,3 +229,35 @@ jobs:
           npm run generate
           git diff --exit-code -- src/schema.d.ts \
             || { echo "::error::src/schema.d.ts is stale — run 'npm run generate' in clients/typescript and commit it."; exit 1; }
+
+  frontend:
+    name: frontend (web)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      # Its typed API schema is generated from the same docs/openapi.yaml; keep
+      # it in lockstep so the UI can never drift from the API contract.
+      - name: Verify generated API schema is in sync with docs/openapi.yaml
+        run: |
+          npm run generate
+          git diff --exit-code -- src/api/schema.d.ts \
+            || { echo "::error::frontend/src/api/schema.d.ts is stale — run 'npm run generate' in frontend and commit it."; exit 1; }
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck + build
+        run: npm run build
