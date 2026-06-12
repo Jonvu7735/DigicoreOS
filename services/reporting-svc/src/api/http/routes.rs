@@ -25,6 +25,7 @@ pub fn router(state: AppState) -> Router {
         .route("/sales-summary", get(handlers::sales::summary))
         .route("/orders", get(handlers::orders::list))
         .route("/customers", get(handlers::customers::list))
+        .route("/employees", get(handlers::employees::list))
         // --- snapshots (capture a read model + emit ReportSnapshotCreated) ---
         .route(
             "/snapshots",
