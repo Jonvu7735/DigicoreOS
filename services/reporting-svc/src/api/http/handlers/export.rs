@@ -1,10 +1,11 @@
 //! Report export handler (`/api/v1/reporting/export`). RBAC-guarded
 //! (`reporting_report_export`), tenant-scoped. Serializes an existing read model
-//! to a downloadable file.
+//! to a downloadable file in the requested `format`.
 //!
-//! Only CSV is implemented today; `xlsx`/`pdf` (documented in the OpenAPI enum)
-//! return a 400 until a renderer is added. Date-range filtering (`from`/`to`) is
-//! accepted but not yet applied — the read models are not range-indexed.
+//! `csv` and `xlsx` are implemented; `pdf` (in the OpenAPI enum) returns a 400
+//! until a renderer is added — a real PDF needs a heavyweight layout/font
+//! dependency for marginal value over xlsx/csv. Date-range filtering (`from`/
+//! `to`) is accepted but not yet applied — the read models are not range-indexed.
 
 use axum::extract::{Query, State};
 use axum::http::{header, HeaderValue};
@@ -24,7 +25,7 @@ const EXPORT_LIMIT: i64 = 10_000;
 pub struct ExportQuery {
     /// Which report to export (e.g. `sales-summary`, `orders`).
     pub report: String,
-    /// `csv` | `xlsx` | `pdf` (only `csv` is implemented).
+    /// `csv` | `xlsx` | `pdf` (`csv` and `xlsx` implemented; `pdf` -> 400).
     pub format: String,
     #[serde(default)]
     pub from: Option<String>,
@@ -40,14 +41,6 @@ pub async fn export(
 ) -> Result<Response, ApiError> {
     auth.0.require_permission("reporting_report_export")?;
     let tenant = TenantId(auth.0.tenant_id);
-
-    if query.format != "csv" {
-        return Err(DomainError::Validation(format!(
-            "export format '{}' is not supported yet; use 'csv'",
-            query.format
-        ))
-        .into());
-    }
 
     let rows: Vec<Vec<String>> = match query.report.as_str() {
         "sales-summary" => {
@@ -141,19 +134,42 @@ pub async fn export(
         }
     };
 
-    let csv = to_csv(&rows);
-    let filename = format!("{}.csv", query.report);
+    let (bytes, content_type, ext): (Vec<u8>, &str, &str) = match query.format.as_str() {
+        "csv" => (to_csv(&rows).into_bytes(), "text/csv; charset=utf-8", "csv"),
+        "xlsx" => (
+            to_xlsx(&rows)
+                .map_err(|e| DomainError::Internal(format!("xlsx render failed: {e}")))?,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "xlsx",
+        ),
+        other => {
+            return Err(DomainError::Validation(format!(
+                "export format '{other}' is not supported yet; use 'csv' or 'xlsx'"
+            ))
+            .into());
+        }
+    };
+    let filename = format!("{}.{ext}", query.report);
 
-    let mut response = csv.into_response();
+    let mut response = bytes.into_response();
     let headers = response.headers_mut();
-    headers.insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_static("text/csv; charset=utf-8"),
-    );
+    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
     if let Ok(value) = HeaderValue::from_str(&format!("attachment; filename=\"{filename}\"")) {
         headers.insert(header::CONTENT_DISPOSITION, value);
     }
     Ok(response)
+}
+
+/// Serialize rows to a single-sheet `.xlsx` workbook (one row per record).
+fn to_xlsx(rows: &[Vec<String>]) -> Result<Vec<u8>, rust_xlsxwriter::XlsxError> {
+    let mut workbook = rust_xlsxwriter::Workbook::new();
+    let sheet = workbook.add_worksheet();
+    for (r, row) in rows.iter().enumerate() {
+        for (c, cell) in row.iter().enumerate() {
+            sheet.write_string(r as u32, c as u16, cell.as_str())?;
+        }
+    }
+    workbook.save_to_buffer()
 }
 
 /// Serialize rows to RFC 4180-ish CSV (CRLF-free; fields quoted as needed).
@@ -199,5 +215,17 @@ mod tests {
             vec!["v1".to_string(), "v,2".to_string()],
         ];
         assert_eq!(to_csv(&rows), "h1,h2\nv1,\"v,2\"\n");
+    }
+
+    #[test]
+    fn xlsx_is_a_nonempty_zip_workbook() {
+        let rows = vec![
+            vec!["h1".to_string(), "h2".to_string()],
+            vec!["v1".to_string(), "v2".to_string()],
+        ];
+        let bytes = to_xlsx(&rows).unwrap();
+        // .xlsx is an Office Open XML ZIP — verify the PK magic + real content.
+        assert!(bytes.starts_with(b"PK\x03\x04"));
+        assert!(bytes.len() > 200);
     }
 }
