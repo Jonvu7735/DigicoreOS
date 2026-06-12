@@ -216,3 +216,38 @@ td.mono {
 .create-row button {
   flex: 0 0 auto;
 }
+
+.tile.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+  font-weight: 600;
+}
+
+.log {
+  list-style: none;
+  padding: 0;
+  margin: 16px 0 0;
+  font-size: 0.85rem;
+  font-family: ui-monospace, monospace;
+  display: grid;
+  gap: 4px;
+}
+
+.done-box {
+  margin-top: 18px;
+  padding: 14px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: rgba(99, 102, 241, 0.08);
+  display: grid;
+  gap: 10px;
+}
+
+code {
+  font-family: ui-monospace, monospace;
+  background: #0f172a;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 0.85em;
+}

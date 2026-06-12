@@ -18,6 +18,9 @@ export function HomePage() {
         Tenant: {user?.tenant_id} · Vai trò: {user?.roles.join(", ") || "—"}
       </p>
       <nav className="links">
+        <Link className="tile primary" to="/demo">
+          ▶ Demo: Đơn → Điểm
+        </Link>
         <Link className="tile" to="/loyalty">
           Loyalty (Retail)
         </Link>
