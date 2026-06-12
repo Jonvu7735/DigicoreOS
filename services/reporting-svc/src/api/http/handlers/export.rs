@@ -2,10 +2,9 @@
 //! (`reporting_report_export`), tenant-scoped. Serializes an existing read model
 //! to a downloadable file in the requested `format`.
 //!
-//! `csv` and `xlsx` are implemented; `pdf` (in the OpenAPI enum) returns a 400
-//! until a renderer is added — a real PDF needs a heavyweight layout/font
-//! dependency for marginal value over xlsx/csv. The `from_date`/`to_date` window
-//! is applied to the `orders` report; the other read models are current-state or
+//! `csv`, `xlsx`, and `pdf` are implemented (`pdf` is a simple paginated text
+//! layout via the lightweight `pdf-writer`). The `from_date`/`to_date` window is
+//! applied to the `orders` report; the other read models are current-state or
 //! not range-indexed, so they ignore it.
 
 use axum::extract::{Query, State};
@@ -27,7 +26,7 @@ const EXPORT_LIMIT: i64 = 10_000;
 pub struct ExportQuery {
     /// Which report to export (e.g. `sales-summary`, `orders`).
     pub report: String,
-    /// `csv` | `xlsx` | `pdf` (`csv` and `xlsx` implemented; `pdf` -> 400).
+    /// `csv` | `xlsx` | `pdf` (all implemented).
     pub format: String,
     #[serde(default)]
     pub from_date: Option<String>,
@@ -150,9 +149,10 @@ pub async fn export(
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             "xlsx",
         ),
+        "pdf" => (to_pdf(&rows), "application/pdf", "pdf"),
         other => {
             return Err(DomainError::Validation(format!(
-                "export format '{other}' is not supported yet; use 'csv' or 'xlsx'"
+                "export format '{other}' is not supported yet; use 'csv', 'xlsx' or 'pdf'"
             ))
             .into());
         }
@@ -178,6 +178,82 @@ fn to_xlsx(rows: &[Vec<String>]) -> Result<Vec<u8>, rust_xlsxwriter::XlsxError> 
         }
     }
     workbook.save_to_buffer()
+}
+
+/// Serialize rows to a simple paginated text PDF (Helvetica, one row per line).
+/// Low-level layout via `pdf-writer` — not a styled table, but a real, openable
+/// PDF of the report data. Non-Latin glyphs may not render (standard font, no
+/// embedding); ids/numbers/dates/ASCII names are fine.
+fn to_pdf(rows: &[Vec<String>]) -> Vec<u8> {
+    use pdf_writer::{Content, Name, Pdf, Rect, Ref, Str};
+
+    const PAGE_W: f32 = 595.0; // A4 in points
+    const PAGE_H: f32 = 842.0;
+    const MARGIN: f32 = 40.0;
+    const LEADING: f32 = 12.0;
+    const FONT_SIZE: f32 = 9.0;
+    let lines_per_page = (((PAGE_H - 2.0 * MARGIN) / LEADING) as usize).max(1);
+
+    // One line per row (columns joined; capped to 140 chars — char-safe, not
+    // byte `truncate` which would panic mid-codepoint — so wide rows stay on-page).
+    let lines: Vec<String> = rows
+        .iter()
+        .map(|r| r.join("  |  ").chars().take(140).collect::<String>())
+        .collect();
+    let chunks: Vec<&[String]> = if lines.is_empty() {
+        vec![&[][..]]
+    } else {
+        lines.chunks(lines_per_page).collect()
+    };
+
+    let mut alloc = Ref::new(1);
+    let catalog_id = alloc.bump();
+    let page_tree_id = alloc.bump();
+    let font_id = alloc.bump();
+
+    let mut pdf = Pdf::new();
+    pdf.catalog(catalog_id).pages(page_tree_id);
+    pdf.type1_font(font_id).base_font(Name(b"Helvetica"));
+
+    let mut page_ids: Vec<Ref> = Vec::new();
+    let mut streams: Vec<(Ref, Vec<u8>)> = Vec::new();
+
+    for chunk in &chunks {
+        let page_id = alloc.bump();
+        let content_id = alloc.bump();
+        page_ids.push(page_id);
+
+        let mut content = Content::new();
+        content.begin_text();
+        content.set_font(Name(b"F1"), FONT_SIZE);
+        content.next_line(MARGIN, PAGE_H - MARGIN);
+        for (i, line) in chunk.iter().enumerate() {
+            if i > 0 {
+                content.next_line(0.0, -LEADING);
+            }
+            content.show(Str(line.as_bytes()));
+        }
+        content.end_text();
+        streams.push((content_id, content.finish().to_vec()));
+    }
+
+    pdf.pages(page_tree_id)
+        .kids(page_ids.iter().copied())
+        .count(page_ids.len() as i32);
+
+    for (idx, &page_id) in page_ids.iter().enumerate() {
+        let mut page = pdf.page(page_id);
+        page.parent(page_tree_id);
+        page.media_box(Rect::new(0.0, 0.0, PAGE_W, PAGE_H));
+        page.contents(streams[idx].0);
+        page.resources().fonts().pair(Name(b"F1"), font_id);
+    }
+
+    for (content_id, data) in &streams {
+        pdf.stream(*content_id, data);
+    }
+
+    pdf.finish()
 }
 
 /// Serialize rows to RFC 4180-ish CSV (CRLF-free; fields quoted as needed).
@@ -235,5 +311,23 @@ mod tests {
         // .xlsx is an Office Open XML ZIP — verify the PK magic + real content.
         assert!(bytes.starts_with(b"PK\x03\x04"));
         assert!(bytes.len() > 200);
+    }
+
+    #[test]
+    fn pdf_is_a_nonempty_pdf_document() {
+        let rows = vec![
+            vec!["h1".to_string(), "h2".to_string()],
+            vec!["v1".to_string(), "v2".to_string()],
+        ];
+        let bytes = to_pdf(&rows);
+        assert!(bytes.starts_with(b"%PDF-"));
+        assert!(bytes.len() > 200);
+    }
+
+    #[test]
+    fn pdf_handles_empty_rows_without_panicking() {
+        // No rows must still produce a valid single-page PDF.
+        let bytes = to_pdf(&[]);
+        assert!(bytes.starts_with(b"%PDF-"));
     }
 }
