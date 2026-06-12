@@ -12,11 +12,14 @@ use sqlx::PgPool;
 
 use crate::api;
 use crate::bootstrap::config::AppConfig;
+use crate::domain::assistant::ports::Assistant;
+use crate::domain::assistant::services::AssistantService;
 use crate::domain::ingest::ingestor::EventIngestor;
 use crate::domain::insights::ports::{InsightGenerator, InsightRepository};
 use crate::domain::insights::services::InsightService;
 use crate::domain::shared::types::Clock;
 use crate::infra;
+use crate::infra::ai::stub_assistant::StubAssistant;
 use crate::infra::ai::stub_generator::StubInsightGenerator;
 use crate::infra::db::insight_repo_pg::PgInsightRepo;
 use crate::infra::time::clock::SystemClock;
@@ -30,6 +33,7 @@ pub struct AppState {
     /// Verifies the RS256 access tokens issued by auth-svc.
     pub verifier: Arc<JwtVerifier>,
     pub insights: Arc<InsightService>,
+    pub assistant: Arc<AssistantService>,
 }
 
 /// Construct infrastructure adapters and bind them to domain ports.
@@ -54,6 +58,11 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
     let clock: Arc<dyn Clock> = Arc::new(SystemClock);
     let insights = Arc::new(InsightService::new(insight_repo, generator, clock));
 
+    // Assistant engine (query/assist): a deterministic stub behind the Assistant
+    // port, same arrangement as the insight generator.
+    let assistant_engine: Arc<dyn Assistant> = Arc::new(StubAssistant);
+    let assistant = Arc::new(AssistantService::new(assistant_engine));
+
     // Outbox relay (DATA-STRATEGY.md §3.2): ai-svc publishes AiInsightGenerated.
     let outbox_repo: Arc<dyn OutboxRepository> = Arc::new(PgOutboxRepo::new(db.clone()));
     if let Some(publisher) = connect_publisher(config.nats_url.as_deref()).await {
@@ -75,6 +84,7 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
         metrics,
         verifier,
         insights,
+        assistant,
     })
 }
 
