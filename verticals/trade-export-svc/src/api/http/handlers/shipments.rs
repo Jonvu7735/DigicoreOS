@@ -6,7 +6,7 @@ use axum::Json;
 use uuid::Uuid;
 
 use crate::api::http::dto::error::ApiError;
-use crate::api::http::dto::pagination::ListQuery;
+use crate::api::http::dto::pagination::{ListQuery, Page};
 use crate::api::http::dto::shipments::{
     CreateShipmentRequest, ShipmentResponse, StatusChangeResponse,
 };
@@ -39,18 +39,19 @@ pub async fn list(
     State(state): State<AppState>,
     auth: Auth,
     Query(query): Query<ListQuery>,
-) -> Result<Json<Vec<ShipmentResponse>>, ApiError> {
+) -> Result<Json<Page<ShipmentResponse>>, ApiError> {
     auth.require_any_role(&READ_ROLES)?;
     let tenant = TenantId(auth.0.tenant_id);
     let (limit, offset) = query.limit_offset();
-    let shipments = state
+    let (page, page_size) = query.page_meta();
+    let items = state
         .shipments
         .list(&tenant, limit, offset)
         .await?
         .into_iter()
         .map(ShipmentResponse::from)
         .collect();
-    Ok(Json(shipments))
+    Ok(Json(Page::new(items, page, page_size)))
 }
 
 /// `GET /api/v1/trade-export/shipments/{shipment_id}` — shipment detail.
