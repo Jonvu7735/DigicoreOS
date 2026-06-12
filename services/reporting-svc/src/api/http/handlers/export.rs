@@ -4,14 +4,16 @@
 //!
 //! `csv` and `xlsx` are implemented; `pdf` (in the OpenAPI enum) returns a 400
 //! until a renderer is added — a real PDF needs a heavyweight layout/font
-//! dependency for marginal value over xlsx/csv. Date-range filtering (`from`/
-//! `to`) is accepted but not yet applied — the read models are not range-indexed.
+//! dependency for marginal value over xlsx/csv. The `from_date`/`to_date` window
+//! is applied to the `orders` report; the other read models are current-state or
+//! not range-indexed, so they ignore it.
 
 use axum::extract::{Query, State};
 use axum::http::{header, HeaderValue};
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
 
+use crate::api::http::dto::date_range;
 use crate::api::http::dto::error::ApiError;
 use crate::api::http::middleware::Auth;
 use crate::bootstrap::wiring::AppState;
@@ -28,9 +30,9 @@ pub struct ExportQuery {
     /// `csv` | `xlsx` | `pdf` (`csv` and `xlsx` implemented; `pdf` -> 400).
     pub format: String,
     #[serde(default)]
-    pub from: Option<String>,
+    pub from_date: Option<String>,
     #[serde(default)]
-    pub to: Option<String>,
+    pub to_date: Option<String>,
 }
 
 /// `GET /api/v1/reporting/export` (`reporting_report_export`).
@@ -41,6 +43,8 @@ pub async fn export(
 ) -> Result<Response, ApiError> {
     auth.0.require_permission("reporting_report_export")?;
     let tenant = TenantId(auth.0.tenant_id);
+    let (from, to) =
+        date_range::parse_bounds(query.from_date.as_deref(), query.to_date.as_deref())?;
 
     let rows: Vec<Vec<String>> = match query.report.as_str() {
         "sales-summary" => {
@@ -59,7 +63,11 @@ pub async fn export(
                 "status".into(),
                 "created_at".into(),
             ]];
-            for o in state.orders.list(&tenant, EXPORT_LIMIT, 0).await? {
+            for o in state
+                .orders
+                .list(&tenant, from, to, EXPORT_LIMIT, 0)
+                .await?
+            {
                 out.push(vec![
                     o.order_id,
                     o.customer_id,

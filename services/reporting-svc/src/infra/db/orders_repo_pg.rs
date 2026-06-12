@@ -49,14 +49,21 @@ impl OrdersProjection for PgOrdersRepo {
     async fn list(
         &self,
         tenant: &TenantId,
+        from: Option<DateTime<Utc>>,
+        to: Option<DateTime<Utc>>,
         limit: i64,
         offset: i64,
     ) -> DomainResult<Vec<ReportedOrder>> {
         let rows: Vec<OrderRow> = sqlx::query_as(
             "SELECT order_id, tenant_id, customer_id, total_amount, currency, status, created_at \
-             FROM order_facts WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+             FROM order_facts WHERE tenant_id = $1 \
+             AND ($2::timestamptz IS NULL OR created_at >= $2) \
+             AND ($3::timestamptz IS NULL OR created_at < $3) \
+             ORDER BY created_at DESC LIMIT $4 OFFSET $5",
         )
         .bind(&tenant.0)
+        .bind(from)
+        .bind(to)
         .bind(limit)
         .bind(offset)
         .fetch_all(&self.pool)
@@ -98,7 +105,7 @@ mod db_integration {
 
     use std::str::FromStr;
 
-    use chrono::Utc;
+    use chrono::{Duration, Utc};
     use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
     use uuid::Uuid;
 
@@ -153,8 +160,22 @@ mod db_integration {
             .await
             .unwrap();
 
-        let listed = repo.list(&tenant, 50, 0).await.unwrap();
+        let listed = repo.list(&tenant, None, None, 50, 0).await.unwrap();
         assert_eq!(listed.len(), 2);
+        // Date filter: a future-only window excludes today's orders.
+        let tomorrow = Utc::now() + Duration::days(1);
+        assert!(repo
+            .list(&tenant, Some(tomorrow), None, 50, 0)
+            .await
+            .unwrap()
+            .is_empty());
+        // ...and an up-to-yesterday window excludes them too.
+        let yesterday = Utc::now() - Duration::days(1);
+        assert!(repo
+            .list(&tenant, None, Some(yesterday), 50, 0)
+            .await
+            .unwrap()
+            .is_empty());
         let ov = repo.overview(&tenant).await.unwrap();
         assert_eq!(ov.order_count, 2);
         assert_eq!(ov.total_amount.0, 3000);

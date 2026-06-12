@@ -177,7 +177,7 @@ impl InboundEventHandler for EventIngestor {
 mod tests {
     use std::sync::Mutex;
 
-    use chrono::Utc;
+    use chrono::{DateTime, Utc};
     use event_models::erp::ErpEvent;
     use event_models::EventHeader;
     use uuid::Uuid;
@@ -234,7 +234,14 @@ mod tests {
                 .push((fact.order_id.clone(), fact.total_amount));
             Ok(())
         }
-        async fn list(&self, _t: &TenantId, _l: i64, _o: i64) -> DomainResult<Vec<ReportedOrder>> {
+        async fn list(
+            &self,
+            _t: &TenantId,
+            _from: Option<DateTime<Utc>>,
+            _to: Option<DateTime<Utc>>,
+            _l: i64,
+            _o: i64,
+        ) -> DomainResult<Vec<ReportedOrder>> {
             Ok(vec![])
         }
         async fn overview(&self, _t: &TenantId) -> DomainResult<OrdersOverview> {
