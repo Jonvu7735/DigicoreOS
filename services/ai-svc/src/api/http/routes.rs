@@ -22,9 +22,13 @@ pub fn router(state: AppState) -> Router {
         .route("/ready", get(handlers::health::ready))
         // --- insights (RBAC-guarded, ARCHITECTURE.md §3.6) ---
         .route("/insight", post(handlers::insights::generate))
-        .route("/insights", get(handlers::insights::list));
-    // Further engine slices (query, assist, models) add their RBAC-guarded
-    // routes here as they land.
+        .route("/insights", get(handlers::insights::list))
+        // --- assistant (RBAC: ai_assistant_use) ---
+        .route("/query", post(handlers::assistant::query))
+        .route("/assist", post(handlers::assistant::assist))
+        // --- model management (RBAC: ai_config_manage) ---
+        .route("/models", get(handlers::models::list))
+        .route("/models/reload", post(handlers::models::reload));
 
     Router::new()
         .nest("/api/v1/ai", ai_routes)
