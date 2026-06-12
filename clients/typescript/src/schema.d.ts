@@ -1211,6 +1211,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/retail/loyalty/{customer_id}/ledger": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                customer_id: string;
+            };
+            cookie?: never;
+        };
+        /** A customer's points history (newest first) */
+        get: operations["listLoyaltyLedger"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/retail/loyalty/{customer_id}/redeem": {
         parameters: {
             query?: never;
@@ -1761,6 +1780,25 @@ export interface components {
         RedeemRequest: {
             /** Format: int64 */
             points: number;
+        };
+        /** @description One movement in a customer's points history. */
+        PointsLedgerEntry: {
+            /** Format: uuid */
+            readonly id?: string;
+            readonly customer_id?: string;
+            /** @enum {string} */
+            kind?: "EARN" | "REDEEM";
+            /**
+             * Format: int64
+             * @description Positive magnitude of the movement
+             */
+            points?: number;
+            /** Format: int64 */
+            balance_after?: number;
+            /** @description Order id for an earn; null for a redeem. */
+            reason?: string | null;
+            /** Format: date-time */
+            readonly at?: string;
         };
     };
     responses: {
@@ -4153,6 +4191,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LoyaltyAccount"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            default: components["responses"]["Error"];
+        };
+    };
+    listLoyaltyLedger: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["Page"];
+                page_size?: components["parameters"]["PageSize"];
+            };
+            header?: never;
+            path: {
+                customer_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The points ledger */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PointsLedgerEntry"][];
                 };
             };
             404: components["responses"]["NotFound"];

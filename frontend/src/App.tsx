@@ -4,6 +4,7 @@ import { ProtectedRoute } from "./components/ProtectedRoute";
 import { DemoPage } from "./pages/DemoPage";
 import { HomePage } from "./pages/HomePage";
 import { LoginPage } from "./pages/LoginPage";
+import { LoyaltyDetailPage } from "./pages/LoyaltyDetailPage";
 import { LoyaltyPage } from "./pages/LoyaltyPage";
 import { ShipmentDetailPage } from "./pages/ShipmentDetailPage";
 import { ShipmentsPage } from "./pages/ShipmentsPage";
@@ -15,6 +16,7 @@ export default function App() {
       <Route element={<ProtectedRoute />}>
         <Route path="/" element={<HomePage />} />
         <Route path="/loyalty" element={<LoyaltyPage />} />
+        <Route path="/loyalty/:customerId" element={<LoyaltyDetailPage />} />
         <Route path="/shipments" element={<ShipmentsPage />} />
         <Route path="/shipments/:id" element={<ShipmentDetailPage />} />
         <Route path="/demo" element={<DemoPage />} />

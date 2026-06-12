@@ -24,6 +24,10 @@ pub fn router(state: AppState) -> Router {
         .route("/loyalty", get(handlers::loyalty::list))
         .route("/loyalty/{customer_id}", get(handlers::loyalty::get))
         .route(
+            "/loyalty/{customer_id}/ledger",
+            get(handlers::loyalty::ledger),
+        )
+        .route(
             "/loyalty/{customer_id}/redeem",
             post(handlers::loyalty::redeem),
         );

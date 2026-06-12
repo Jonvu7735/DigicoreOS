@@ -1,6 +1,7 @@
 //! Loyalty account entity + tier (maps to `retail_svc.loyalty_accounts`).
 
 use chrono::{DateTime, Utc};
+use uuid::Uuid;
 
 use crate::domain::shared::types::TenantId;
 
@@ -49,4 +50,45 @@ impl LoyaltyAccount {
     pub fn tier(&self) -> Tier {
         Tier::from_lifetime_spend(self.lifetime_spend_minor)
     }
+}
+
+/// Direction of a points-ledger movement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PointsEntryKind {
+    Earn,
+    Redeem,
+}
+
+impl PointsEntryKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PointsEntryKind::Earn => "EARN",
+            PointsEntryKind::Redeem => "REDEEM",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "EARN" => Some(PointsEntryKind::Earn),
+            "REDEEM" => Some(PointsEntryKind::Redeem),
+            _ => None,
+        }
+    }
+}
+
+/// One movement in a customer's points history (earn or redeem) with the
+/// resulting balance. Written in the same transaction as the balance change, so
+/// the ledger can never drift from the account.
+#[derive(Debug, Clone)]
+pub struct PointsLedgerEntry {
+    pub id: Uuid,
+    pub tenant_id: TenantId,
+    pub customer_id: String,
+    pub kind: PointsEntryKind,
+    /// Positive magnitude of the movement.
+    pub points: i64,
+    pub balance_after: i64,
+    /// Source reference — the order id for an earn; `None` for a redeem.
+    pub reason: Option<String>,
+    pub at: DateTime<Utc>,
 }
