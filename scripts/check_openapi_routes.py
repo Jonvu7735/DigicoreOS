@@ -31,7 +31,8 @@ def served_routes():
         if not nest:
             continue
         prefix = nest.group(1)
-        for sub in re.findall(r'\.route\("([^"]+)"', text):
+        # `\s*` so multi-line `.route(\n  "/path",\n  ...)` (rustfmt-wrapped) is caught.
+        for sub in re.findall(r'\.route\(\s*"([^"]+)"', text):
             if sub in INFRA:
                 continue
             routes.add((f, prefix + sub))

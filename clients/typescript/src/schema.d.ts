@@ -506,7 +506,7 @@ export interface paths {
         patch: operations["updateDeal"];
         trace?: never;
     };
-    "/api/v1/crm/deals/{deal_id}/move-stage": {
+    "/api/v1/crm/deals/{deal_id}/stage": {
         parameters: {
             query?: never;
             header?: never;
@@ -518,11 +518,49 @@ export interface paths {
         get?: never;
         put?: never;
         /** Move a deal to another pipeline stage */
-        post: operations["moveDealStage"];
+        post: operations["changeDealStage"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/crm/contacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List contacts */
+        get: operations["listContacts"];
+        put?: never;
+        /** Create a contact */
+        post: operations["createContact"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/crm/contacts/{contact_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                contact_id: string;
+            };
+            cookie?: never;
+        };
+        /** Get a contact */
+        get: operations["getContact"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update a contact */
+        patch: operations["updateContact"];
         trace?: never;
     };
     "/api/v1/crm/activities": {
@@ -600,7 +638,26 @@ export interface paths {
         patch: operations["updateEmployee"];
         trace?: never;
     };
-    "/api/v1/hrm/attendances": {
+    "/api/v1/hrm/employees/{employee_id}/terminate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                employee_id: components["parameters"]["EmployeeId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Terminate an employee */
+        post: operations["terminateEmployee"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hrm/attendance": {
         parameters: {
             query?: never;
             header?: never;
@@ -618,7 +675,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/hrm/leaves": {
+    "/api/v1/hrm/attendance/{attendance_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                attendance_id: string;
+            };
+            cookie?: never;
+        };
+        /** Get an attendance record */
+        get: operations["getAttendance"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hrm/leave": {
         parameters: {
             query?: never;
             header?: never;
@@ -687,6 +763,24 @@ export interface paths {
         put?: never;
         /** Reject a leave request */
         post: operations["rejectLeave"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reporting/snapshots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List report snapshots */
+        get: operations["listSnapshots"];
+        put?: never;
+        /** Create a report snapshot */
+        post: operations["createSnapshot"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1290,6 +1384,38 @@ export interface components {
         };
         CustomerPage: {
             items?: components["schemas"]["Customer"][];
+        } & components["schemas"]["PageMeta"];
+        Contact: {
+            /** Format: uuid */
+            readonly id?: string;
+            readonly tenant_id?: string;
+            /** Format: uuid */
+            customer_id: string;
+            name: string;
+            /** Format: email */
+            email?: string;
+            phone?: string;
+            title?: string;
+            /** Format: date-time */
+            readonly created_at?: string;
+        };
+        ContactPage: {
+            items?: components["schemas"]["Contact"][];
+        } & components["schemas"]["PageMeta"];
+        Snapshot: {
+            /** Format: uuid */
+            readonly id?: string;
+            readonly tenant_id?: string;
+            /** @description e.g. sales, inventory */
+            snapshot_type: string;
+            readonly payload?: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            readonly created_at?: string;
+        };
+        SnapshotPage: {
+            items?: components["schemas"]["Snapshot"][];
         } & components["schemas"]["PageMeta"];
         /** @enum {string} */
         DealStage: "new" | "qualified" | "proposal" | "won" | "lost";
@@ -2709,7 +2835,7 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
-    moveDealStage: {
+    changeDealStage: {
         parameters: {
             query?: never;
             header?: never;
@@ -2736,6 +2862,108 @@ export interface operations {
                 };
             };
             409: components["responses"]["Conflict"];
+            default: components["responses"]["Error"];
+        };
+    };
+    listContacts: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["Page"];
+                page_size?: components["parameters"]["PageSize"];
+                customer_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of contacts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContactPage"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    createContact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Contact"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contact"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    getContact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                contact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The contact */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contact"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            default: components["responses"]["Error"];
+        };
+    };
+    updateContact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                contact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Contact"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contact"];
+                };
+            };
+            404: components["responses"]["NotFound"];
             default: components["responses"]["Error"];
         };
     };
@@ -2916,6 +3144,30 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
+    terminateEmployee: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                employee_id: components["parameters"]["EmployeeId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Terminated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Employee"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            default: components["responses"]["Error"];
+        };
+    };
     listAttendances: {
         parameters: {
             query?: {
@@ -2965,6 +3217,30 @@ export interface operations {
                     "application/json": components["schemas"]["Attendance"];
                 };
             };
+            default: components["responses"]["Error"];
+        };
+    };
+    getAttendance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                attendance_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The attendance record */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Attendance"];
+                };
+            };
+            404: components["responses"]["NotFound"];
             default: components["responses"]["Error"];
         };
     };
@@ -3087,6 +3363,55 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
+            default: components["responses"]["Error"];
+        };
+    };
+    listSnapshots: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["Page"];
+                page_size?: components["parameters"]["PageSize"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of snapshots */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SnapshotPage"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    createSnapshot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Snapshot"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Snapshot"];
+                };
+            };
             default: components["responses"]["Error"];
         };
     };

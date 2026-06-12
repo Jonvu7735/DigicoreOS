@@ -756,12 +756,12 @@ paths:
               schema: { $ref: '#/components/schemas/Deal' }
         '404': { $ref: '#/components/responses/NotFound' }
         default: { $ref: '#/components/responses/Error' }
-  /api/v1/crm/deals/{deal_id}/move-stage:
+  /api/v1/crm/deals/{deal_id}/stage:
     parameters: [{ $ref: '#/components/parameters/DealId' }]
     post:
       tags: [CRM]
       summary: Move a deal to another pipeline stage
-      operationId: moveDealStage
+      operationId: changeDealStage
       requestBody:
         required: true
         content:
@@ -778,6 +778,75 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Deal' }
         '409': { $ref: '#/components/responses/Conflict' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/crm/contacts:
+    get:
+      tags: [CRM]
+      summary: List contacts
+      operationId: listContacts
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: customer_id
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: A page of contacts
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContactPage' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [CRM]
+      summary: Create a contact
+      operationId: createContact
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Contact' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Contact' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/crm/contacts/{contact_id}:
+    parameters:
+      - name: contact_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [CRM]
+      summary: Get a contact
+      operationId: getContact
+      responses:
+        '200':
+          description: The contact
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Contact' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [CRM]
+      summary: Update a contact
+      operationId: updateContact
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Contact' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Contact' }
+        '404': { $ref: '#/components/responses/NotFound' }
         default: { $ref: '#/components/responses/Error' }
   /api/v1/crm/activities:
     get:
@@ -892,7 +961,21 @@ paths:
               schema: { $ref: '#/components/schemas/Employee' }
         '404': { $ref: '#/components/responses/NotFound' }
         default: { $ref: '#/components/responses/Error' }
-  /api/v1/hrm/attendances:
+  /api/v1/hrm/employees/{employee_id}/terminate:
+    parameters: [{ $ref: '#/components/parameters/EmployeeId' }]
+    post:
+      tags: [HRM]
+      summary: Terminate an employee
+      operationId: terminateEmployee
+      responses:
+        '200':
+          description: Terminated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Employee' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/hrm/attendance:
     get:
       tags: [HRM]
       summary: List attendance records
@@ -928,7 +1011,25 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Attendance' }
         default: { $ref: '#/components/responses/Error' }
-  /api/v1/hrm/leaves:
+  /api/v1/hrm/attendance/{attendance_id}:
+    parameters:
+      - name: attendance_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [HRM]
+      summary: Get an attendance record
+      operationId: getAttendance
+      responses:
+        '200':
+          description: The attendance record
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Attendance' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/hrm/leave:
     get:
       tags: [HRM]
       summary: List leave requests
@@ -1004,6 +1105,37 @@ paths:
         default: { $ref: '#/components/responses/Error' }
 
   # ─────────────────────────── Reporting ───────────────────────────
+  /api/v1/reporting/snapshots:
+    get:
+      tags: [Reporting]
+      summary: List report snapshots
+      operationId: listSnapshots
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: A page of snapshots
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SnapshotPage' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Reporting]
+      summary: Create a report snapshot
+      operationId: createSnapshot
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Snapshot' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Snapshot' }
+        default: { $ref: '#/components/responses/Error' }
   /api/v1/reporting/overview:
     get:
       tags: [Reporting]
@@ -1700,6 +1832,37 @@ components:
       allOf: [{ $ref: '#/components/schemas/PageMeta' }]
       properties:
         items: { type: array, items: { $ref: '#/components/schemas/Customer' } }
+    Contact:
+      type: object
+      required: [customer_id, name]
+      properties:
+        id: { type: string, format: uuid, readOnly: true }
+        tenant_id: { type: string, readOnly: true }
+        customer_id: { type: string, format: uuid }
+        name: { type: string }
+        email: { type: string, format: email }
+        phone: { type: string }
+        title: { type: string }
+        created_at: { type: string, format: date-time, readOnly: true }
+    ContactPage:
+      type: object
+      allOf: [{ $ref: '#/components/schemas/PageMeta' }]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Contact' } }
+    Snapshot:
+      type: object
+      required: [snapshot_type]
+      properties:
+        id: { type: string, format: uuid, readOnly: true }
+        tenant_id: { type: string, readOnly: true }
+        snapshot_type: { type: string, description: "e.g. sales, inventory" }
+        payload: { type: object, additionalProperties: true, readOnly: true }
+        created_at: { type: string, format: date-time, readOnly: true }
+    SnapshotPage:
+      type: object
+      allOf: [{ $ref: '#/components/schemas/PageMeta' }]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Snapshot' } }
     DealStage:
       type: string
       enum: [new, qualified, proposal, won, lost]
