@@ -111,3 +111,36 @@ jobs:
         with:
           command: check advisories bans sources
           arguments: ""
+
+  vertical-trade-export:
+    name: vertical (trade-export)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust 1.96.0 (rustfmt, clippy)
+        run: |
+          rustup toolchain install 1.96.0 --profile minimal --component rustfmt --component clippy
+          rustc --version
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            verticals/trade-export-svc/target
+          key: ${{ runner.os }}-vertical-trade-export-${{ hashFiles('verticals/trade-export-svc/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-vertical-trade-export-
+
+      # The vertical is a standalone workspace (verticals/README.md), built via
+      # --manifest-path. Same gates as the core `check` job.
+      - name: Format check
+        run: cargo fmt --manifest-path verticals/trade-export-svc/Cargo.toml --all -- --check
+
+      - name: Clippy (deny warnings)
+        run: cargo clippy --manifest-path verticals/trade-export-svc/Cargo.toml --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --manifest-path verticals/trade-export-svc/Cargo.toml

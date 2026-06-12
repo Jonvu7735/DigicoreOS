@@ -1,8 +1,9 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 # Applied in listed order: namespace -> config -> infra (postgres, nats) ->
-# services -> edge (ingress) -> network policy. The digicore-jwt secret (and
-# digicore-tls, if not using cert-manager) are created out of band (see README.md).
+# services -> edge (ingress) -> network policy -> verticals. The digicore-jwt
+# secret (and digicore-tls, if not using cert-manager) are created out of band
+# (see README.md).
 resources:
   - 00-namespace.yaml
   - 10-config.yaml
@@ -11,3 +12,4 @@ resources:
   - 40-services.yaml
   - 50-ingress.yaml
   - 60-network-policy.yaml
+  - 70-trade-export.yaml

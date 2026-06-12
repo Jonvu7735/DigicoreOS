@@ -7,14 +7,18 @@
 
 FROM rust:1.96-slim AS builder
 ARG SERVICE
+# Manifest to build: defaults to the core workspace; a vertical (its own separate
+# workspace) passes its own, e.g. MANIFEST_PATH=verticals/trade-export-svc/Cargo.toml.
+ARG MANIFEST_PATH=Cargo.toml
 # Build deps for ring (transitive via jsonwebtoken/rustls): a C toolchain + perl.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends build-essential perl pkg-config \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
 COPY . .
-RUN cargo build --release --locked -p "${SERVICE}" \
- && cp "target/release/${SERVICE}" /build/app-bin
+# `dirname $MANIFEST_PATH`/target is the workspace target dir for both layouts.
+RUN cargo build --release --locked --manifest-path "${MANIFEST_PATH}" -p "${SERVICE}" \
+ && cp "$(dirname "${MANIFEST_PATH}")/target/release/${SERVICE}" /build/app-bin
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update \

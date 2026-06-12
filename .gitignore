@@ -1,5 +1,7 @@
 # Rust / Cargo build output
 /target/
+# Verticals are separate Cargo workspaces with their own target dirs.
+/verticals/*/target/
 **/*.rs.bk
 
 # These should stay tracked (do NOT ignore):
