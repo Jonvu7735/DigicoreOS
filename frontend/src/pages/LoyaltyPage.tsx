@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 import type { components } from "../api/schema";
 import { useApi } from "../api/useApi";
 
 type LoyaltyAccount = components["schemas"]["LoyaltyAccount"];
+type LoyaltyRules = components["schemas"]["LoyaltyRules"];
 
 export function LoyaltyPage() {
   const api = useApi();
@@ -49,6 +50,8 @@ export function LoyaltyPage() {
         </Link>
       </header>
       <p className="muted">Tài khoản điểm thưởng của khách hàng (Retail).</p>
+
+      <RulesPanel />
 
       {loading && <p className="muted">Đang tải…</p>}
       {error && <p className="error">{error}</p>}
@@ -148,5 +151,115 @@ function LoyaltyRow({
         {err && <span className="error">{err}</span>}
       </td>
     </tr>
+  );
+}
+
+function RulesPanel() {
+  const api = useApi();
+  const [rules, setRules] = useState<LoyaltyRules | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  // Draft fields (strings while editing)
+  const [perPoint, setPerPoint] = useState("");
+  const [silver, setSilver] = useState("");
+  const [gold, setGold] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    api.GET("/api/v1/retail/loyalty/rules", {}).then(({ data }) => {
+      if (active && data) setRules(data);
+    });
+    return () => {
+      active = false;
+    };
+  }, [api]);
+
+  function startEdit() {
+    if (!rules) return;
+    setPerPoint(String(rules.minor_per_point));
+    setSilver(String(rules.silver_min));
+    setGold(String(rules.gold_min));
+    setErr(null);
+    setEditing(true);
+  }
+
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    const body = {
+      minor_per_point: Number.parseInt(perPoint, 10),
+      silver_min: Number.parseInt(silver, 10),
+      gold_min: Number.parseInt(gold, 10),
+    };
+    if (body.minor_per_point < 1 || body.gold_min < body.silver_min) {
+      setErr("Quy tắc không hợp lệ (điểm/đơn vị ≥ 1, Vàng ≥ Bạc).");
+      return;
+    }
+    setSaving(true);
+    setErr(null);
+    const { data, error } = await api.PUT("/api/v1/retail/loyalty/rules", {
+      body,
+    });
+    setSaving(false);
+    if (error || !data) {
+      setErr("Lưu quy tắc thất bại.");
+      return;
+    }
+    setRules(data);
+    setEditing(false);
+  }
+
+  if (!rules) return null;
+
+  return (
+    <div className="done-box">
+      {!editing ? (
+        <div className="row">
+          <span className="muted">
+            Quy tắc: <strong>1 điểm</strong> / {rules.minor_per_point}đ · Bạc ≥{" "}
+            {rules.silver_min} · Vàng ≥ {rules.gold_min}
+          </span>
+          <button className="ghost" onClick={startEdit}>
+            Sửa
+          </button>
+        </div>
+      ) : (
+        <form onSubmit={save} className="create-row">
+          <input
+            type="number"
+            min={1}
+            value={perPoint}
+            onChange={(e) => setPerPoint(e.target.value)}
+            placeholder="đ / điểm"
+          />
+          <input
+            type="number"
+            min={0}
+            value={silver}
+            onChange={(e) => setSilver(e.target.value)}
+            placeholder="Bạc ≥"
+          />
+          <input
+            type="number"
+            min={0}
+            value={gold}
+            onChange={(e) => setGold(e.target.value)}
+            placeholder="Vàng ≥"
+          />
+          <button type="submit" disabled={saving}>
+            {saving ? "…" : "Lưu"}
+          </button>
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => setEditing(false)}
+          >
+            Huỷ
+          </button>
+        </form>
+      )}
+      {err && <p className="error">{err}</p>}
+    </div>
   );
 }

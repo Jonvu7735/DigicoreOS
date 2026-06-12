@@ -1547,6 +1547,34 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/LoyaltyAccountPage' }
         default: { $ref: '#/components/responses/Error' }
+  /api/v1/retail/loyalty/rules:
+    get:
+      tags: [Retail]
+      summary: Get the tenant's loyalty program rules
+      operationId: getLoyaltyRules
+      responses:
+        '200':
+          description: The tenant's loyalty rules (defaults when unconfigured)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoyaltyRules' }
+        default: { $ref: '#/components/responses/Error' }
+    put:
+      tags: [Retail]
+      summary: Update the tenant's loyalty program rules
+      operationId: setLoyaltyRules
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoyaltyRules' }
+      responses:
+        '200':
+          description: Updated rules
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoyaltyRules' }
+        default: { $ref: '#/components/responses/Error' }
   /api/v1/retail/loyalty/{customer_id}:
     parameters:
       - name: customer_id
@@ -2242,6 +2270,14 @@ components:
       required: [points]
       properties:
         points: { type: integer, format: int64, minimum: 1 }
+    LoyaltyRules:
+      type: object
+      description: Per-tenant loyalty program policy.
+      required: [minor_per_point, silver_min, gold_min]
+      properties:
+        minor_per_point: { type: integer, format: int64, minimum: 1, description: Minor currency units of spend per earned point }
+        silver_min: { type: integer, format: int64, minimum: 0, description: Lifetime spend (minor units) at which SILVER begins }
+        gold_min: { type: integer, format: int64, minimum: 0, description: Lifetime spend (minor units) at which GOLD begins }
     PointsLedgerEntry:
       type: object
       description: One movement in a customer's points history.

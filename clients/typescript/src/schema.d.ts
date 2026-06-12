@@ -1192,6 +1192,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/retail/loyalty/rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the tenant's loyalty program rules */
+        get: operations["getLoyaltyRules"];
+        /** Update the tenant's loyalty program rules */
+        put: operations["setLoyaltyRules"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/retail/loyalty/{customer_id}": {
         parameters: {
             query?: never;
@@ -1780,6 +1798,24 @@ export interface components {
         RedeemRequest: {
             /** Format: int64 */
             points: number;
+        };
+        /** @description Per-tenant loyalty program policy. */
+        LoyaltyRules: {
+            /**
+             * Format: int64
+             * @description Minor currency units of spend per earned point
+             */
+            minor_per_point: number;
+            /**
+             * Format: int64
+             * @description Lifetime spend (minor units) at which SILVER begins
+             */
+            silver_min: number;
+            /**
+             * Format: int64
+             * @description Lifetime spend (minor units) at which GOLD begins
+             */
+            gold_min: number;
         };
         /** @description One movement in a customer's points history. */
         PointsLedgerEntry: {
@@ -4168,6 +4204,52 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LoyaltyAccountPage"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    getLoyaltyRules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tenant's loyalty rules (defaults when unconfigured) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoyaltyRules"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    setLoyaltyRules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoyaltyRules"];
+            };
+        };
+        responses: {
+            /** @description Updated rules */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoyaltyRules"];
                 };
             };
             default: components["responses"]["Error"];

@@ -6,14 +6,13 @@ use std::sync::Arc;
 use event_models::EventHeader;
 use uuid::Uuid;
 
-use crate::domain::loyalty::entities::{LoyaltyAccount, PointsEntryKind, PointsLedgerEntry};
+use crate::domain::loyalty::entities::{
+    LoyaltyAccount, LoyaltyRules, PointsEntryKind, PointsLedgerEntry,
+};
 use crate::domain::loyalty::events::{redeemed_outbox, PointsRedeemed};
 use crate::domain::loyalty::ports::LoyaltyRepository;
 use crate::domain::shared::error::{DomainError, DomainResult};
 use crate::domain::shared::types::{Clock, TenantId};
-
-/// 1 loyalty point per whole currency unit (amounts are minor units).
-const MINOR_PER_POINT: i64 = 100;
 
 pub struct LoyaltyService {
     repo: Arc<dyn LoyaltyRepository>,
@@ -41,7 +40,7 @@ impl LoyaltyService {
             return Err(DomainError::Validation("customer_id is required".into()));
         }
         let spend = total_amount_minor.max(0);
-        let points = spend / MINOR_PER_POINT;
+        let points = self.repo.get_rules(tenant_id).await?.points_for(spend);
         let order_id = order_id.trim();
         let reason = (!order_id.is_empty()).then_some(order_id);
         self.repo
@@ -76,6 +75,24 @@ impl LoyaltyService {
         offset: i64,
     ) -> DomainResult<Vec<LoyaltyAccount>> {
         self.repo.list_in_tenant(tenant_id, limit, offset).await
+    }
+
+    /// The tenant's loyalty rules (default when unconfigured).
+    pub async fn rules(&self, tenant_id: &TenantId) -> DomainResult<LoyaltyRules> {
+        self.repo.get_rules(tenant_id).await
+    }
+
+    /// Update the tenant's loyalty rules (validated before persisting).
+    pub async fn set_rules(
+        &self,
+        tenant_id: &TenantId,
+        rules: LoyaltyRules,
+    ) -> DomainResult<LoyaltyRules> {
+        rules.validate().map_err(DomainError::Validation)?;
+        self.repo
+            .set_rules(tenant_id, &rules, self.clock.now_utc())
+            .await?;
+        Ok(rules)
     }
 
     /// A customer's points history (after confirming the account exists).
@@ -160,6 +177,7 @@ mod tests {
         processed: Mutex<Vec<Uuid>>,
         events: Mutex<Vec<String>>,
         ledger: Mutex<Vec<PointsLedgerEntry>>,
+        rules: Mutex<Option<LoyaltyRules>>,
     }
     #[async_trait]
     impl LoyaltyRepository for FakeRepo {
@@ -272,6 +290,18 @@ mod tests {
                 .filter(|e| e.tenant_id == *tenant && e.customer_id == customer_id)
                 .cloned()
                 .collect())
+        }
+        async fn get_rules(&self, _tenant: &TenantId) -> DomainResult<LoyaltyRules> {
+            Ok(self.rules.lock().unwrap().unwrap_or_default())
+        }
+        async fn set_rules(
+            &self,
+            _tenant: &TenantId,
+            rules: &LoyaltyRules,
+            _now: DateTime<Utc>,
+        ) -> DomainResult<()> {
+            *self.rules.lock().unwrap() = Some(*rules);
+            Ok(())
         }
     }
 
@@ -395,6 +425,61 @@ mod tests {
                 ("REDEEM", 30, 70, None),
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn accrue_uses_tenant_rules() {
+        let (svc, _) = service();
+        let tenant = TenantId("t1".into());
+        // Generous program: 1 point per 10 minor units (default is 1 per 100).
+        svc.set_rules(
+            &tenant,
+            LoyaltyRules {
+                minor_per_point: 10,
+                silver_min: 100_000,
+                gold_min: 1_000_000,
+            },
+        )
+        .await
+        .unwrap();
+        svc.accrue_for_order(Uuid::now_v7(), &tenant, "c", "o1", 5000)
+            .await
+            .unwrap();
+        let account = svc.get(&tenant, "c").await.unwrap();
+        assert_eq!(account.points_balance, 500); // 5000 / 10, not / 100
+    }
+
+    #[tokio::test]
+    async fn set_rules_rejects_invalid() {
+        let (svc, _) = service();
+        let tenant = TenantId("t1".into());
+        assert!(matches!(
+            svc.set_rules(
+                &tenant,
+                LoyaltyRules {
+                    minor_per_point: 0, // must be > 0
+                    silver_min: 100_000,
+                    gold_min: 1_000_000,
+                },
+            )
+            .await
+            .unwrap_err(),
+            DomainError::Validation(_)
+        ));
+        // gold below silver is also rejected.
+        assert!(matches!(
+            svc.set_rules(
+                &tenant,
+                LoyaltyRules {
+                    minor_per_point: 100,
+                    silver_min: 500_000,
+                    gold_min: 100_000,
+                },
+            )
+            .await
+            .unwrap_err(),
+            DomainError::Validation(_)
+        ));
     }
 
     #[tokio::test]
