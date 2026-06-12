@@ -6,11 +6,12 @@
 # Default `up` starts ONLY infra (Postgres + NATS) for `cargo run` workflows:
 #     docker compose -f deploy/docker-compose.dev.yml up -d
 #
-# To run the whole platform in containers, enable the `services` profile (first
-# generate dev RS256 keys: `bash scripts/gen-dev-jwt-keys.sh`):
+# To run the WHOLE platform (6 core + 2 vertical services + the web UI) in
+# containers, enable the `services` profile (first generate dev RS256 keys:
+# `bash scripts/gen-dev-jwt-keys.sh`):
 #     docker compose -f deploy/docker-compose.dev.yml --profile services up -d --build
-#
-# Each service applies its own migrations on boot and binds its default port.
+# then open the UI at http://localhost:8080 (nginx serves the SPA and proxies the
+# API to each service). Each service applies its own migrations on boot.
 
 # Reusable anchors (x- fields are ignored by Compose).
 x-svc-build: &svc-build
@@ -110,6 +111,42 @@ services:
     environment: *svc-env
     volumes: ["../.dev:/keys:ro"]
     ports: ["8086:8086"]
+
+  # --- vertical services (their OWN Cargo workspaces; built via MANIFEST_PATH) ---
+  trade-export-svc:
+    profiles: ["services"]
+    build:
+      <<: *svc-build
+      args:
+        SERVICE: trade-export-svc
+        MANIFEST_PATH: verticals/trade-export-svc/Cargo.toml
+    depends_on: *svc-deps
+    environment: *svc-env
+    volumes: ["../.dev:/keys:ro"]
+    ports: ["8087:8087"]
+
+  retail-svc:
+    profiles: ["services"]
+    build:
+      <<: *svc-build
+      args:
+        SERVICE: retail-svc
+        MANIFEST_PATH: verticals/retail-svc/Cargo.toml
+    depends_on: *svc-deps
+    environment: *svc-env
+    volumes: ["../.dev:/keys:ro"]
+    ports: ["8088:8088"]
+
+  # --- web UI + API reverse proxy ---
+  # nginx serves the built SPA AND proxies /api/v1/<service> to each service, so
+  # the browser talks to ONE origin (http://localhost:8080) — no CORS, no gateway.
+  web:
+    profiles: ["services"]
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    depends_on: [auth-svc]
+    ports: ["8080:80"]
 
 volumes:
   pgdata: {}

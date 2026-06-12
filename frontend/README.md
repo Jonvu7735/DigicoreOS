@@ -23,6 +23,21 @@ cargo run -p auth-svc                                    # :8081 (and others as 
 
 Then sign in at `/login` with a tenant user (create one via `POST /api/v1/auth/register`).
 
+## Full stack in one command
+
+To run the **whole platform** (6 core + 2 vertical services + this UI) in
+containers — nginx serves the built SPA and reverse-proxies the API, so there's
+one origin and no CORS:
+
+```bash
+# from the repo root
+bash scripts/gen-dev-jwt-keys.sh                                   # dev RS256 keys (.dev/)
+docker compose -f deploy/docker-compose.dev.yml --profile services up -d --build
+open http://localhost:8080                                         # the UI
+```
+
+`frontend/Dockerfile` builds this SPA; `frontend/nginx.conf` is the proxy map.
+
 ## Scripts
 
 | | |
