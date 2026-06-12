@@ -1,0 +1,99 @@
+{
+  "title": "DigicoreOS — Platform Overview",
+  "uid": "digicore-overview",
+  "editable": true,
+  "schemaVersion": 39,
+  "version": 1,
+  "tags": ["digicore"],
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "30s",
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "label": "Data source",
+        "current": {}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Services up",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 0 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 8 }] }
+        },
+        "overrides": []
+      },
+      "targets": [
+        { "expr": "count(up{service=~\"auth-svc|core-erp-svc|crm-svc|hrm-svc|reporting-svc|ai-svc|trade-export-svc|retail-svc\"} == 1)", "refId": "A" }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Service availability (up)",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 18, "x": 6, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0, "max": 1 }, "overrides": [] },
+      "targets": [
+        { "expr": "up{service=~\"auth-svc|core-erp-svc|crm-svc|hrm-svc|reporting-svc|ai-svc|trade-export-svc|retail-svc\"}", "refId": "A", "legendFormat": "{{service}}" }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Auth — login rate (success vs failed)",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        { "expr": "sum(rate(auth_login_success_total[5m]))", "refId": "A", "legendFormat": "success" },
+        { "expr": "sum(rate(auth_login_failed_total[5m]))", "refId": "B", "legendFormat": "failed" }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Auth — refresh rate (success vs failed)",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        { "expr": "sum(rate(auth_refresh_success_total[5m]))", "refId": "A", "legendFormat": "success" },
+        { "expr": "sum(rate(auth_refresh_failed_total[5m]))", "refId": "B", "legendFormat": "failed" }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Events — published rate by service",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        { "expr": "sum by (service) (rate(events_published_total[5m]))", "refId": "A", "legendFormat": "{{service}}" }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Events — consumed vs failed",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        { "expr": "sum(rate(events_consumed_total[5m]))", "refId": "A", "legendFormat": "consumed" },
+        { "expr": "sum(rate(events_consumed_failed_total[5m]))", "refId": "B", "legendFormat": "failed" }
+      ]
+    }
+  ]
+}

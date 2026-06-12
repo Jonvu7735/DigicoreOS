@@ -212,6 +212,10 @@ Mục tiêu:
 
 ## 7. Dashboard & Alerting
 
+> Triển khai cụ thể nằm ở `deploy/observability/`: Prometheus scrape config,
+> Grafana dashboard `digicore-overview`, và `PrometheusRule` alerts — bám theo
+> đúng các metric service đang phát ra.
+
 ### 7.1. Dashboard gợi ý
 
 - System health dashboard:
