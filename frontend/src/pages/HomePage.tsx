@@ -1,3 +1,5 @@
+import { Link } from "react-router-dom";
+
 import { useAuth } from "../auth/useAuth";
 
 export function HomePage() {
@@ -16,9 +18,10 @@ export function HomePage() {
         Tenant: {user?.tenant_id} · Vai trò: {user?.roles.join(", ") || "—"}
       </p>
       <nav className="links">
-        <span className="muted">Sắp có:</span>
-        <span className="pill">Loyalty (Retail)</span>
-        <span className="pill">Shipments (Trade-export)</span>
+        <Link className="tile" to="/loyalty">
+          Loyalty (Retail)
+        </Link>
+        <span className="tile disabled">Shipments (Trade-export)</span>
       </nav>
     </main>
   );

@@ -116,3 +116,87 @@ button.ghost {
   color: var(--muted);
   font-size: 0.8rem;
 }
+
+.card.wide {
+  width: min(820px, 94vw);
+}
+
+.tile {
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid #475569;
+  color: var(--fg);
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+.tile:hover {
+  border-color: var(--accent);
+}
+
+.tile.disabled {
+  color: var(--muted);
+  opacity: 0.6;
+}
+
+.ghost-link {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.85rem;
+}
+
+.ghost-link:hover {
+  color: var(--fg);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 16px;
+  font-size: 0.9rem;
+}
+
+th,
+td {
+  padding: 10px 8px;
+  text-align: left;
+  border-bottom: 1px solid #334155;
+}
+
+th {
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 0.8rem;
+}
+
+td.num,
+th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+td.mono {
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.redeem {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.redeem input {
+  width: 80px;
+  padding: 6px 8px;
+}
+
+.redeem button {
+  padding: 6px 12px;
+  font-size: 0.85rem;
+}
+
+.redeem .error {
+  font-size: 0.75rem;
+}
