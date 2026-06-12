@@ -1099,6 +1099,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/trade-export/shipments/{shipment_id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                shipment_id: string;
+            };
+            cookie?: never;
+        };
+        /** Get a shipment's status timeline (oldest first) */
+        get: operations["listShipmentHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/trade-export/shipments/{shipment_id}/book": {
         parameters: {
             query?: never;
@@ -1707,6 +1726,18 @@ export interface components {
             unit: string;
             /** Format: double */
             net_weight_kg?: number | null;
+        };
+        /** @description One entry in a shipment's status timeline. */
+        ShipmentStatusChange: {
+            /** Format: uuid */
+            readonly id?: string;
+            /** Format: uuid */
+            readonly shipment_id?: string;
+            /** @description Status before this change; null on the opening (creation) entry. */
+            from_status?: components["schemas"]["ShipmentStatus"] | null;
+            to_status?: components["schemas"]["ShipmentStatus"];
+            /** Format: date-time */
+            readonly at?: string;
         };
         /** @enum {string} */
         LoyaltyTier: "BRONZE" | "SILVER" | "GOLD";
@@ -3978,6 +4009,30 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CargoLine"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            default: components["responses"]["Error"];
+        };
+    };
+    listShipmentHistory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                shipment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The status timeline */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShipmentStatusChange"][];
                 };
             };
             404: components["responses"]["NotFound"];

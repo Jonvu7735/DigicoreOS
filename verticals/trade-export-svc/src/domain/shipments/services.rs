@@ -8,7 +8,9 @@ use uuid::Uuid;
 
 use crate::domain::shared::error::{DomainError, DomainResult};
 use crate::domain::shared::types::{Clock, TenantId};
-use crate::domain::shipments::entities::{CargoLine, ExportShipment, ShipmentStatus};
+use crate::domain::shipments::entities::{
+    CargoLine, ExportShipment, ShipmentStatus, ShipmentStatusChange,
+};
 use crate::domain::shipments::events::{shipment_outbox, subjects, ShipmentEvent};
 use crate::domain::shipments::ports::{CargoLineRepository, ShipmentRepository};
 
@@ -69,7 +71,8 @@ impl ShipmentService {
             status: ShipmentStatus::Draft,
             created_at: self.clock.now_utc(),
         };
-        self.repo.insert(&shipment).await?;
+        let opening = self.status_change(&shipment, None, ShipmentStatus::Draft);
+        self.repo.insert(&shipment, &opening).await?;
         Ok(shipment)
     }
 
@@ -213,17 +216,45 @@ impl ShipmentService {
         subject: &'static str,
     ) -> DomainResult<ExportShipment> {
         let mut shipment = self.get(tenant_id, id).await?;
-        if !shipment.status.can_transition_to(next) {
+        let from = shipment.status;
+        if !from.can_transition_to(next) {
             return Err(DomainError::Validation(format!(
                 "cannot move shipment from {} to {}",
-                shipment.status.as_str(),
+                from.as_str(),
                 next.as_str()
             )));
         }
         shipment.status = next;
+        let change = self.status_change(&shipment, Some(from), next);
         let event = shipment_outbox(&self.status_event(&shipment, event_type), subject)?;
-        self.repo.save_status(&shipment, &event).await?;
+        self.repo.save_status(&shipment, &change, &event).await?;
         Ok(shipment)
+    }
+
+    /// A shipment's status timeline (after confirming it exists in the tenant).
+    pub async fn list_status_history(
+        &self,
+        tenant_id: &TenantId,
+        shipment_id: &Uuid,
+    ) -> DomainResult<Vec<ShipmentStatusChange>> {
+        self.get(tenant_id, shipment_id).await?;
+        self.repo.list_status_history(tenant_id, shipment_id).await
+    }
+
+    fn status_change(
+        &self,
+        shipment: &ExportShipment,
+        from_status: Option<ShipmentStatus>,
+        to_status: ShipmentStatus,
+    ) -> ShipmentStatusChange {
+        ShipmentStatusChange {
+            id: Uuid::now_v7(),
+            shipment_id: shipment.id,
+            tenant_id: shipment.tenant_id.clone(),
+            from_status,
+            to_status,
+            at: self.clock.now_utc(),
+        }
     }
 
     /// Idempotently draft a shipment for a paid ERP order (called by the inbound
@@ -253,7 +284,8 @@ impl ShipmentService {
             status: ShipmentStatus::Draft,
             created_at: self.clock.now_utc(),
         };
-        self.repo.insert(&shipment).await?;
+        let opening = self.status_change(&shipment, None, ShipmentStatus::Draft);
+        self.repo.insert(&shipment, &opening).await?;
         Ok(Some(shipment))
     }
 
@@ -290,11 +322,17 @@ mod tests {
     struct FakeRepo {
         items: Mutex<Vec<ExportShipment>>,
         events: Mutex<Vec<String>>,
+        history: Mutex<Vec<ShipmentStatusChange>>,
     }
     #[async_trait]
     impl ShipmentRepository for FakeRepo {
-        async fn insert(&self, shipment: &ExportShipment) -> DomainResult<()> {
+        async fn insert(
+            &self,
+            shipment: &ExportShipment,
+            opening: &ShipmentStatusChange,
+        ) -> DomainResult<()> {
             self.items.lock().unwrap().push(shipment.clone());
+            self.history.lock().unwrap().push(opening.clone());
             Ok(())
         }
         async fn list_in_tenant(
@@ -334,14 +372,30 @@ mod tests {
         async fn save_status(
             &self,
             shipment: &ExportShipment,
+            change: &ShipmentStatusChange,
             event: &OutboxMessage,
         ) -> DomainResult<()> {
             let mut items = self.items.lock().unwrap();
             if let Some(slot) = items.iter_mut().find(|s| s.id == shipment.id) {
                 *slot = shipment.clone();
             }
+            self.history.lock().unwrap().push(change.clone());
             self.events.lock().unwrap().push(event.event_type.clone());
             Ok(())
+        }
+        async fn list_status_history(
+            &self,
+            _t: &TenantId,
+            shipment_id: &Uuid,
+        ) -> DomainResult<Vec<ShipmentStatusChange>> {
+            Ok(self
+                .history
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|c| c.shipment_id == *shipment_id)
+                .cloned()
+                .collect())
         }
     }
 
@@ -649,5 +703,31 @@ mod tests {
             svc.list_cargo_lines(&t, &Uuid::now_v7()).await.unwrap_err(),
             DomainError::NotFound(_)
         ));
+    }
+
+    #[tokio::test]
+    async fn status_history_records_creation_and_each_transition() {
+        let (svc, _repo, _cargo) = service_full();
+        let t = TenantId("t1".into());
+        let s = svc
+            .create(&t, "US".into(), "CIF".into(), None)
+            .await
+            .unwrap();
+        svc.book(&t, &s.id).await.unwrap();
+        svc.dispatch(&t, &s.id).await.unwrap();
+
+        let history = svc.list_status_history(&t, &s.id).await.unwrap();
+        let trail: Vec<(Option<ShipmentStatus>, ShipmentStatus)> = history
+            .iter()
+            .map(|c| (c.from_status, c.to_status))
+            .collect();
+        assert_eq!(
+            trail,
+            vec![
+                (None, ShipmentStatus::Draft),
+                (Some(ShipmentStatus::Draft), ShipmentStatus::Booked),
+                (Some(ShipmentStatus::Booked), ShipmentStatus::Dispatched),
+            ]
+        );
     }
 }

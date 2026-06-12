@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use crate::domain::shared::error::{DomainError, DomainResult};
 use crate::domain::shared::types::TenantId;
-use crate::domain::shipments::entities::{ExportShipment, ShipmentStatus};
+use crate::domain::shipments::entities::{ExportShipment, ShipmentStatus, ShipmentStatusChange};
 use crate::domain::shipments::ports::ShipmentRepository;
 use crate::infra::db::{map_db_err, map_write_err};
 
@@ -42,8 +42,52 @@ fn to_shipment(r: ShipmentRow) -> DomainResult<ExportShipment> {
 const COLS: &str =
     "id, tenant_id, order_id, reference, destination_country, incoterm, status, created_at";
 
+type StatusRow = (Uuid, Uuid, String, Option<String>, String, DateTime<Utc>);
+
+fn to_change(r: StatusRow) -> DomainResult<ShipmentStatusChange> {
+    let from_status = match r.3 {
+        Some(s) => Some(
+            ShipmentStatus::parse(&s)
+                .ok_or_else(|| DomainError::Internal(format!("unknown status: {s}")))?,
+        ),
+        None => None,
+    };
+    let to_status = ShipmentStatus::parse(&r.4)
+        .ok_or_else(|| DomainError::Internal(format!("unknown status: {}", r.4)))?;
+    Ok(ShipmentStatusChange {
+        id: r.0,
+        shipment_id: r.1,
+        tenant_id: TenantId(r.2),
+        from_status,
+        to_status,
+        at: r.5,
+    })
+}
+
 fn outbox_err(e: platform_outbox::OutboxError) -> DomainError {
     DomainError::Internal(e.to_string())
+}
+
+/// Insert a status-history row on the given connection (used inside the same
+/// transaction as the state change it records).
+async fn insert_status_change(
+    conn: &mut sqlx::PgConnection,
+    change: &ShipmentStatusChange,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO export_shipment_status_history \
+         (id, shipment_id, tenant_id, from_status, to_status, at) \
+         VALUES ($1, $2, $3, $4, $5, $6)",
+    )
+    .bind(change.id)
+    .bind(change.shipment_id)
+    .bind(&change.tenant_id.0)
+    .bind(change.from_status.map(ShipmentStatus::as_str))
+    .bind(change.to_status.as_str())
+    .bind(change.at)
+    .execute(conn)
+    .await?;
+    Ok(())
 }
 
 pub struct PgShipmentRepo {
@@ -58,7 +102,12 @@ impl PgShipmentRepo {
 
 #[async_trait]
 impl ShipmentRepository for PgShipmentRepo {
-    async fn insert(&self, shipment: &ExportShipment) -> DomainResult<()> {
+    async fn insert(
+        &self,
+        shipment: &ExportShipment,
+        opening: &ShipmentStatusChange,
+    ) -> DomainResult<()> {
+        let mut tx = self.pool.begin().await.map_err(map_db_err)?;
         sqlx::query(
             "INSERT INTO export_shipments \
              (id, tenant_id, order_id, reference, destination_country, incoterm, status, created_at) \
@@ -72,9 +121,13 @@ impl ShipmentRepository for PgShipmentRepo {
         .bind(&shipment.incoterm)
         .bind(shipment.status.as_str())
         .bind(shipment.created_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_write_err)?;
+        insert_status_change(&mut tx, opening)
+            .await
+            .map_err(map_write_err)?;
+        tx.commit().await.map_err(map_db_err)?;
         Ok(())
     }
 
@@ -132,6 +185,7 @@ impl ShipmentRepository for PgShipmentRepo {
     async fn save_status(
         &self,
         shipment: &ExportShipment,
+        change: &ShipmentStatusChange,
         event: &OutboxMessage,
     ) -> DomainResult<()> {
         let mut tx = self.pool.begin().await.map_err(map_db_err)?;
@@ -142,8 +196,29 @@ impl ShipmentRepository for PgShipmentRepo {
             .execute(&mut *tx)
             .await
             .map_err(map_write_err)?;
+        insert_status_change(&mut tx, change)
+            .await
+            .map_err(map_write_err)?;
         insert_outbox(&mut tx, event).await.map_err(outbox_err)?;
         tx.commit().await.map_err(map_db_err)?;
         Ok(())
+    }
+
+    async fn list_status_history(
+        &self,
+        tenant: &TenantId,
+        shipment_id: &Uuid,
+    ) -> DomainResult<Vec<ShipmentStatusChange>> {
+        let rows: Vec<StatusRow> = sqlx::query_as(
+            "SELECT id, shipment_id, tenant_id, from_status, to_status, at \
+             FROM export_shipment_status_history \
+             WHERE tenant_id = $1 AND shipment_id = $2 ORDER BY at ASC, id ASC",
+        )
+        .bind(&tenant.0)
+        .bind(shipment_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_db_err)?;
+        rows.into_iter().map(to_change).collect()
     }
 }

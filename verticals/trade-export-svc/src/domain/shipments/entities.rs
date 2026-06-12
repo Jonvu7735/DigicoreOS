@@ -77,6 +77,20 @@ impl ExportShipment {
     }
 }
 
+/// One entry in a shipment's status timeline: a transition from one status to
+/// the next (or `from = None` for the initial creation), with when it happened.
+/// Written in the same transaction as the status change it records.
+#[derive(Debug, Clone)]
+pub struct ShipmentStatusChange {
+    pub id: Uuid,
+    pub shipment_id: Uuid,
+    pub tenant_id: TenantId,
+    /// The status before the change; `None` for the creation entry.
+    pub from_status: Option<ShipmentStatus>,
+    pub to_status: ShipmentStatus,
+    pub at: DateTime<Utc>,
+}
+
 /// A line of cargo on a shipment — one row of the packing list / commercial
 /// invoice: what the goods are, how many, and how heavy. Child of
 /// [`ExportShipment`]; deleted with its parent.

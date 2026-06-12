@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::domain::shipments::entities::ExportShipment;
+use crate::domain::shipments::entities::{ExportShipment, ShipmentStatusChange};
 
 #[derive(Debug, Deserialize)]
 pub struct CreateShipmentRequest {
@@ -38,6 +38,28 @@ impl From<ExportShipment> for ShipmentResponse {
             incoterm: s.incoterm,
             status: s.status.as_str().to_string(),
             created_at: s.created_at.to_rfc3339(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct StatusChangeResponse {
+    pub id: String,
+    pub shipment_id: String,
+    /// The status before this change; null on the opening (creation) entry.
+    pub from_status: Option<String>,
+    pub to_status: String,
+    pub at: String,
+}
+
+impl From<ShipmentStatusChange> for StatusChangeResponse {
+    fn from(c: ShipmentStatusChange) -> Self {
+        Self {
+            id: c.id.to_string(),
+            shipment_id: c.shipment_id.to_string(),
+            from_status: c.from_status.map(|s| s.as_str().to_string()),
+            to_status: c.to_status.as_str().to_string(),
+            at: c.at.to_rfc3339(),
         }
     }
 }
