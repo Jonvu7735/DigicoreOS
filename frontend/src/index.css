@@ -200,3 +200,19 @@ td.mono {
 .redeem .error {
   font-size: 0.75rem;
 }
+
+.create-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+.create-row input {
+  flex: 1 1 120px;
+  min-width: 90px;
+}
+
+.create-row button {
+  flex: 0 0 auto;
+}
