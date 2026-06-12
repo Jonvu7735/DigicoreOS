@@ -88,6 +88,27 @@ impl DealRepository for PgDealRepo {
         rows.into_iter().map(to_deal).collect()
     }
 
+    async fn list_for_customer(
+        &self,
+        tenant: &TenantId,
+        customer_id: &Uuid,
+        limit: i64,
+        offset: i64,
+    ) -> DomainResult<Vec<Deal>> {
+        let rows: Vec<DealRow> = sqlx::query_as(&format!(
+            "SELECT {COLS} FROM deals WHERE tenant_id = $1 AND customer_id = $2 \
+             ORDER BY created_at DESC LIMIT $3 OFFSET $4"
+        ))
+        .bind(&tenant.0)
+        .bind(customer_id)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_db_err)?;
+        rows.into_iter().map(to_deal).collect()
+    }
+
     async fn find_in_tenant(&self, tenant: &TenantId, id: &Uuid) -> DomainResult<Option<Deal>> {
         let row: Option<DealRow> = sqlx::query_as(&format!(
             "SELECT {COLS} FROM deals WHERE tenant_id = $1 AND id = $2"
