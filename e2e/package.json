@@ -1,0 +1,13 @@
+{
+  "name": "digicore-e2e",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Browser smoke tests for the DigicoreOS frontend. Self-contained: seeds a demo session and mocks the API, so no backend is required.",
+  "scripts": {
+    "test": "playwright test",
+    "install-browser": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0"
+  }
+}

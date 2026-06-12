@@ -15,6 +15,11 @@ mod domain;
 mod infra;
 mod utils;
 
+// Postgres-backed integration tests; gated on TEST_DATABASE_URL (CI's
+// `vertical (retail)` job), so the default `cargo test` stays infra-free.
+#[cfg(test)]
+mod it;
+
 use anyhow::Context;
 
 #[tokio::main]
