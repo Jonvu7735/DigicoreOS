@@ -107,6 +107,24 @@ paths:
       responses:
         '204': { description: Logged out }
         default: { $ref: '#/components/responses/Error' }
+  /api/v1/auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a new tenant + owner user, returning a token pair
+      operationId: authRegister
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterRequest' }
+      responses:
+        '201':
+          description: Registered
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPair' }
+        default: { $ref: '#/components/responses/Error' }
   /api/v1/auth/me:
     get:
       tags: [Auth]
@@ -942,20 +960,43 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Leave' }
         default: { $ref: '#/components/responses/Error' }
-  /api/v1/hrm/leaves/{leave_id}:
+  /api/v1/hrm/leave/{leave_id}:
     parameters: [{ $ref: '#/components/parameters/LeaveId' }]
-    patch:
+    get:
       tags: [HRM]
-      summary: Update or approve/reject a leave request
-      operationId: updateLeave
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/Leave' }
+      summary: Get a leave request
+      operationId: getLeave
       responses:
         '200':
-          description: Updated
+          description: The leave request
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Leave' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/hrm/leave/{leave_id}/approve:
+    parameters: [{ $ref: '#/components/parameters/LeaveId' }]
+    post:
+      tags: [HRM]
+      summary: Approve a leave request
+      operationId: approveLeave
+      responses:
+        '200':
+          description: Approved
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Leave' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/hrm/leave/{leave_id}/reject:
+    parameters: [{ $ref: '#/components/parameters/LeaveId' }]
+    post:
+      tags: [HRM]
+      summary: Reject a leave request
+      operationId: rejectLeave
+      responses:
+        '200':
+          description: Rejected
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Leave' }
@@ -1136,6 +1177,23 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AiResponse' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/ai/insights:
+    get:
+      tags: [AI]
+      summary: List generated insights
+      operationId: listAiInsights
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Insights
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/AiInsight' }
         default: { $ref: '#/components/responses/Error' }
   /api/v1/ai/assist:
     post:
@@ -1470,6 +1528,15 @@ components:
       required: [refresh_token]
       properties:
         refresh_token: { type: string }
+    RegisterRequest:
+      type: object
+      required: [tenant_name, email, password, display_name]
+      properties:
+        tenant_name: { type: string }
+        plan: { type: string, description: "Subscription plan; defaults to 'free'." }
+        email: { type: string, format: email }
+        password: { type: string, format: password, writeOnly: true }
+        display_name: { type: string }
     TokenPair:
       type: object
       required: [access_token, token_type, expires_in]
@@ -1794,6 +1861,15 @@ components:
         id: { type: string }
         name: { type: string }
         enabled: { type: boolean }
+    AiInsight:
+      type: object
+      properties:
+        id: { type: string, format: uuid, readOnly: true }
+        tenant_id: { type: string, readOnly: true }
+        category: { type: string, description: "e.g. sales_anomaly, churn_risk" }
+        summary: { type: string }
+        source_ref: { type: [string, "null"] }
+        created_at: { type: string, format: date-time, readOnly: true }
 
     # ---- Trade-Export (vertical) ----
     ShipmentStatus:
