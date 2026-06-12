@@ -31,6 +31,7 @@ pub fn router(state: AppState) -> Router {
             "/inventory-summary",
             get(handlers::inventory_summary::summary),
         )
+        .route("/hrm-summary", get(handlers::hrm_summary::summary))
         // --- snapshots (capture a read model + emit ReportSnapshotCreated) ---
         .route(
             "/snapshots",
