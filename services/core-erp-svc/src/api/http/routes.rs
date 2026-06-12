@@ -67,6 +67,11 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .nest("/api/v1/erp", erp_routes)
         .route("/metrics", get(handlers::metrics::render))
+        // Standard HTTP metrics (OBSERVABILITY.md §4.3), shared across services.
+        .layer(axum::middleware::from_fn_with_state(
+            service_name,
+            platform_observability::track_http_metrics,
+        ))
         .layer(TraceLayer::new_for_http().make_span_with(
             move |request: &axum::http::Request<_>| {
                 tracing::info_span!(

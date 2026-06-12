@@ -1825,6 +1825,7 @@ name = "platform-observability"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum 0.8.9",
  "metrics",
  "metrics-exporter-prometheus",
  "opentelemetry",

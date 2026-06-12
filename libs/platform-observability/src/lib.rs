@@ -14,6 +14,9 @@
 //! Log fields contract (`OBSERVABILITY.md` §3.2): `timestamp`, `level`, `service`,
 //! `env`, `tenant_id`, `user_id`, `trace_id`, `span_id`, `message`.
 
+pub mod http_metrics;
+pub use http_metrics::track_http_metrics;
+
 use std::collections::HashMap;
 
 use metrics_exporter_prometheus::PrometheusBuilder;
@@ -144,7 +147,18 @@ pub fn set_parent_from_w3c(
 /// Install the global Prometheus metrics recorder and return its handle.
 /// Services expose `handle.render()` on `GET /metrics` (OBSERVABILITY.md §4.2).
 pub fn install_prometheus() -> anyhow::Result<PrometheusHandle> {
+    // Render `http_request_duration_seconds` as a Prometheus histogram (`_bucket`
+    // series) so dashboards can compute quantiles (OBSERVABILITY.md §4.3); without
+    // explicit buckets this exporter would emit a summary (no histogram_quantile).
+    const DURATION_BUCKETS: &[f64] = &[
+        0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
+    ];
     let handle = PrometheusBuilder::new()
+        .set_buckets_for_metric(
+            metrics_exporter_prometheus::Matcher::Full("http_request_duration_seconds".to_string()),
+            DURATION_BUCKETS,
+        )
+        .map_err(|e| anyhow::anyhow!("failed to set histogram buckets: {e}"))?
         .install_recorder()
         .map_err(|e| anyhow::anyhow!("failed to install prometheus recorder: {e}"))?;
     Ok(handle)
