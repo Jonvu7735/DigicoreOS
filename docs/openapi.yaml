@@ -1417,6 +1417,43 @@ paths:
               schema: { $ref: '#/components/schemas/Shipment' }
         '404': { $ref: '#/components/responses/NotFound' }
         default: { $ref: '#/components/responses/Error' }
+  /api/v1/trade-export/shipments/{shipment_id}/cargo:
+    parameters:
+      - name: shipment_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [TradeExport]
+      summary: List a shipment's cargo lines
+      operationId: listCargoLines
+      responses:
+        '200':
+          description: The shipment's cargo lines
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CargoLine' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [TradeExport]
+      summary: Add a cargo line to a shipment (allowed while DRAFT or BOOKED)
+      operationId: addCargoLine
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddCargoLineRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CargoLine' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Error' }
   /api/v1/trade-export/shipments/{shipment_id}/book:
     parameters:
       - name: shipment_id
@@ -2095,6 +2132,36 @@ components:
       allOf: [{ $ref: '#/components/schemas/PageMeta' }]
       properties:
         items: { type: array, items: { $ref: '#/components/schemas/Shipment' } }
+    CargoLine:
+      type: object
+      required: [description, quantity, unit]
+      properties:
+        id: { type: string, format: uuid, readOnly: true }
+        shipment_id: { type: string, format: uuid, readOnly: true }
+        description: { type: string, description: What the goods are }
+        hs_code:
+          type: [string, "null"]
+          description: Harmonized System tariff code (6-10 digits).
+        quantity: { type: integer, format: int64, minimum: 1 }
+        unit: { type: string, description: "Unit of measure, e.g. CTN, PCS, PLT", example: CTN }
+        net_weight_kg:
+          type: [number, "null"]
+          format: double
+          description: Net weight in kilograms.
+        created_at: { type: string, format: date-time, readOnly: true }
+    AddCargoLineRequest:
+      type: object
+      required: [description, quantity, unit]
+      properties:
+        description: { type: string }
+        hs_code:
+          type: [string, "null"]
+          description: Harmonized System tariff code (6-10 digits).
+        quantity: { type: integer, format: int64, minimum: 1 }
+        unit: { type: string, example: CTN }
+        net_weight_kg:
+          type: [number, "null"]
+          format: double
 
     # ---- Retail (vertical) ----
     LoyaltyTier:

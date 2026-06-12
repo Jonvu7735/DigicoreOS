@@ -1079,6 +1079,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/trade-export/shipments/{shipment_id}/cargo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                shipment_id: string;
+            };
+            cookie?: never;
+        };
+        /** List a shipment's cargo lines */
+        get: operations["listCargoLines"];
+        put?: never;
+        /** Add a cargo line to a shipment (allowed while DRAFT or BOOKED) */
+        post: operations["addCargoLine"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/trade-export/shipments/{shipment_id}/book": {
         parameters: {
             query?: never;
@@ -1653,6 +1673,41 @@ export interface components {
         ShipmentPage: {
             items?: components["schemas"]["Shipment"][];
         } & components["schemas"]["PageMeta"];
+        CargoLine: {
+            /** Format: uuid */
+            readonly id?: string;
+            /** Format: uuid */
+            readonly shipment_id?: string;
+            /** @description What the goods are */
+            description: string;
+            /** @description Harmonized System tariff code (6-10 digits). */
+            hs_code?: string | null;
+            /** Format: int64 */
+            quantity: number;
+            /**
+             * @description Unit of measure, e.g. CTN, PCS, PLT
+             * @example CTN
+             */
+            unit: string;
+            /**
+             * Format: double
+             * @description Net weight in kilograms.
+             */
+            net_weight_kg?: number | null;
+            /** Format: date-time */
+            readonly created_at?: string;
+        };
+        AddCargoLineRequest: {
+            description: string;
+            /** @description Harmonized System tariff code (6-10 digits). */
+            hs_code?: string | null;
+            /** Format: int64 */
+            quantity: number;
+            /** @example CTN */
+            unit: string;
+            /** Format: double */
+            net_weight_kg?: number | null;
+        };
         /** @enum {string} */
         LoyaltyTier: "BRONZE" | "SILVER" | "GOLD";
         LoyaltyAccount: {
@@ -3871,6 +3926,58 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Shipment"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            default: components["responses"]["Error"];
+        };
+    };
+    listCargoLines: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                shipment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The shipment's cargo lines */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CargoLine"][];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            default: components["responses"]["Error"];
+        };
+    };
+    addCargoLine: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                shipment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddCargoLineRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CargoLine"];
                 };
             };
             404: components["responses"]["NotFound"];

@@ -5,6 +5,7 @@ import { DemoPage } from "./pages/DemoPage";
 import { HomePage } from "./pages/HomePage";
 import { LoginPage } from "./pages/LoginPage";
 import { LoyaltyPage } from "./pages/LoyaltyPage";
+import { ShipmentDetailPage } from "./pages/ShipmentDetailPage";
 import { ShipmentsPage } from "./pages/ShipmentsPage";
 
 export default function App() {
@@ -15,6 +16,7 @@ export default function App() {
         <Route path="/" element={<HomePage />} />
         <Route path="/loyalty" element={<LoyaltyPage />} />
         <Route path="/shipments" element={<ShipmentsPage />} />
+        <Route path="/shipments/:id" element={<ShipmentDetailPage />} />
         <Route path="/demo" element={<DemoPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

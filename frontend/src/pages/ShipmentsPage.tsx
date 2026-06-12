@@ -166,7 +166,15 @@ function ShipmentRow({
   const status = shipment.status;
   return (
     <tr>
-      <td className="mono">{shipment.reference ?? "—"}</td>
+      <td className="mono">
+        {shipment.id ? (
+          <Link className="ghost-link" to={`/shipments/${shipment.id}`}>
+            {shipment.reference ?? "—"}
+          </Link>
+        ) : (
+          (shipment.reference ?? "—")
+        )}
+      </td>
       <td>{shipment.destination_country}</td>
       <td>{shipment.incoterm}</td>
       <td>

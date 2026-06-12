@@ -45,6 +45,12 @@ impl ShipmentStatus {
             (Draft, Booked) | (Draft, Cancelled) | (Booked, Dispatched) | (Booked, Cancelled)
         )
     }
+
+    /// Cargo may only be edited before the goods leave: while DRAFT or BOOKED.
+    /// Once DISPATCHED (gone) or CANCELLED (void) the packing list is frozen.
+    pub fn accepts_cargo_changes(self) -> bool {
+        matches!(self, ShipmentStatus::Draft | ShipmentStatus::Booked)
+    }
 }
 
 /// An export shipment: the vertical's aggregate root.
@@ -69,4 +75,22 @@ impl ExportShipment {
     pub fn reference_for(id: &Uuid) -> String {
         format!("EXP-{}", id.simple().to_string()[..8].to_uppercase())
     }
+}
+
+/// A line of cargo on a shipment — one row of the packing list / commercial
+/// invoice: what the goods are, how many, and how heavy. Child of
+/// [`ExportShipment`]; deleted with its parent.
+#[derive(Debug, Clone)]
+pub struct CargoLine {
+    pub id: Uuid,
+    pub shipment_id: Uuid,
+    pub tenant_id: TenantId,
+    pub description: String,
+    /// Harmonized System tariff code (6–10 digits), when the goods are classified.
+    pub hs_code: Option<String>,
+    pub quantity: i64,
+    /// Unit of measure, e.g. `CTN`, `PCS`, `PLT`, `KG`.
+    pub unit: String,
+    pub net_weight_kg: Option<f64>,
+    pub created_at: DateTime<Utc>,
 }
