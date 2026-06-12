@@ -142,7 +142,7 @@ async fn order_created_flows_outbox_relay_nats_consumer_to_orders_read_model() {
     // 4) Eventually-consistent: poll the read model until the order lands.
     let mut projected = false;
     for _ in 0..100 {
-        let listed = orders.list(&tenant, 50, 0).await.unwrap();
+        let listed = orders.list(&tenant, None, None, 50, 0).await.unwrap();
         if listed
             .iter()
             .any(|o| o.order_id == order_id && o.total_amount.0 == 4242)
