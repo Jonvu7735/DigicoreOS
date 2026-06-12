@@ -17,6 +17,7 @@ use crate::domain::customers::ports::CustomersProjection;
 use crate::domain::deals::ports::DealsProjection;
 use crate::domain::employees::ports::EmployeesProjection;
 use crate::domain::ingest::ingestor::EventIngestor;
+use crate::domain::inventory::ports::InventoryProjection;
 use crate::domain::orders::ports::OrdersProjection;
 use crate::domain::sales::ports::SalesProjection;
 use crate::domain::shared::types::Clock;
@@ -25,6 +26,7 @@ use crate::infra;
 use crate::infra::db::customers_repo_pg::PgCustomersRepo;
 use crate::infra::db::deals_repo_pg::PgDealsRepo;
 use crate::infra::db::employees_repo_pg::PgEmployeesRepo;
+use crate::infra::db::inventory_repo_pg::PgInventoryRepo;
 use crate::infra::db::orders_repo_pg::PgOrdersRepo;
 use crate::infra::db::sales_repo_pg::PgSalesRepo;
 use crate::infra::db::snapshot_repo_pg::PgSnapshotRepo;
@@ -48,6 +50,8 @@ pub struct AppState {
     pub employees: Arc<dyn EmployeesProjection>,
     /// Deals read model (per-deal current stage; backs the CRM funnel).
     pub deals: Arc<dyn DealsProjection>,
+    /// Inventory read model (stock-on-hand per product, summed from StockAdjusted).
+    pub inventory: Arc<dyn InventoryProjection>,
     pub snapshots: Arc<SnapshotService>,
 }
 
@@ -72,12 +76,14 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
     let customers: Arc<dyn CustomersProjection> = Arc::new(PgCustomersRepo::new(db.clone()));
     let employees: Arc<dyn EmployeesProjection> = Arc::new(PgEmployeesRepo::new(db.clone()));
     let deals: Arc<dyn DealsProjection> = Arc::new(PgDealsRepo::new(db.clone()));
+    let inventory: Arc<dyn InventoryProjection> = Arc::new(PgInventoryRepo::new(db.clone()));
     let ingestor: Arc<dyn InboundEventHandler> = Arc::new(EventIngestor::new(
         sales.clone(),
         orders.clone(),
         customers.clone(),
         employees.clone(),
         deals.clone(),
+        inventory.clone(),
     ));
 
     let clock: Arc<dyn Clock> = Arc::new(SystemClock);
@@ -110,6 +116,7 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
         customers,
         employees,
         deals,
+        inventory,
         snapshots,
     })
 }

@@ -4,6 +4,7 @@ pub mod crm_funnel;
 pub mod customers;
 pub mod employees;
 pub mod health;
+pub mod inventory_summary;
 pub mod metrics;
 pub mod orders;
 pub mod overview;
