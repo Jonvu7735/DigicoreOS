@@ -14,6 +14,7 @@ use platform_events::{connect_consumer, InboundEventHandler, NatsConsumer};
 use crate::api;
 use crate::bootstrap::config::AppConfig;
 use crate::domain::customers::ports::CustomersProjection;
+use crate::domain::deals::ports::DealsProjection;
 use crate::domain::employees::ports::EmployeesProjection;
 use crate::domain::ingest::ingestor::EventIngestor;
 use crate::domain::orders::ports::OrdersProjection;
@@ -22,6 +23,7 @@ use crate::domain::shared::types::Clock;
 use crate::domain::snapshots::services::SnapshotService;
 use crate::infra;
 use crate::infra::db::customers_repo_pg::PgCustomersRepo;
+use crate::infra::db::deals_repo_pg::PgDealsRepo;
 use crate::infra::db::employees_repo_pg::PgEmployeesRepo;
 use crate::infra::db::orders_repo_pg::PgOrdersRepo;
 use crate::infra::db::sales_repo_pg::PgSalesRepo;
@@ -44,6 +46,8 @@ pub struct AppState {
     pub customers: Arc<dyn CustomersProjection>,
     /// Employees read model (per-employee facts projected from EmployeeHired).
     pub employees: Arc<dyn EmployeesProjection>,
+    /// Deals read model (per-deal current stage; backs the CRM funnel).
+    pub deals: Arc<dyn DealsProjection>,
     pub snapshots: Arc<SnapshotService>,
 }
 
@@ -67,11 +71,13 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
     let orders: Arc<dyn OrdersProjection> = Arc::new(PgOrdersRepo::new(db.clone()));
     let customers: Arc<dyn CustomersProjection> = Arc::new(PgCustomersRepo::new(db.clone()));
     let employees: Arc<dyn EmployeesProjection> = Arc::new(PgEmployeesRepo::new(db.clone()));
+    let deals: Arc<dyn DealsProjection> = Arc::new(PgDealsRepo::new(db.clone()));
     let ingestor: Arc<dyn InboundEventHandler> = Arc::new(EventIngestor::new(
         sales.clone(),
         orders.clone(),
         customers.clone(),
         employees.clone(),
+        deals.clone(),
     ));
 
     let clock: Arc<dyn Clock> = Arc::new(SystemClock);
@@ -103,6 +109,7 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
         orders,
         customers,
         employees,
+        deals,
         snapshots,
     })
 }

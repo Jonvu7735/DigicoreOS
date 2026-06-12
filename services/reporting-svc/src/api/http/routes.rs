@@ -26,6 +26,7 @@ pub fn router(state: AppState) -> Router {
         .route("/orders", get(handlers::orders::list))
         .route("/customers", get(handlers::customers::list))
         .route("/employees", get(handlers::employees::list))
+        .route("/crm-funnel", get(handlers::crm_funnel::funnel))
         // --- snapshots (capture a read model + emit ReportSnapshotCreated) ---
         .route(
             "/snapshots",

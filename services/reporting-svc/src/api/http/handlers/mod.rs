@@ -1,5 +1,6 @@
 //! HTTP handlers: parse DTO -> call domain -> map result/DomainError to DTO.
 
+pub mod crm_funnel;
 pub mod customers;
 pub mod employees;
 pub mod health;
