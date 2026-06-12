@@ -21,7 +21,9 @@ export function HomePage() {
         <Link className="tile" to="/loyalty">
           Loyalty (Retail)
         </Link>
-        <span className="tile disabled">Shipments (Trade-export)</span>
+        <Link className="tile" to="/shipments">
+          Shipments (Trade-export)
+        </Link>
       </nav>
     </main>
   );
