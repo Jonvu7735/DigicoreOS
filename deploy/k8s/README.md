@@ -11,6 +11,7 @@ NATS (JetStream), plus a Deployment + Service for each of the six services.
 | `30-nats.yaml` | NATS (JetStream) Deployment + Service |
 | `40-services.yaml` | the six services (Deployment + ClusterIP Service each) |
 | `50-ingress.yaml` | API edge: one HTTPS host routing `/api/v1/<domain>/` to each service, with edge rate limiting |
+| `60-network-policy.yaml` | Default-deny ingress + allowlist (ingress→services, services→postgres/nats) |
 
 Each service applies its own migrations on boot (creating its schema first — one
 schema per service in the shared database) and verifies RS256 tokens with the
@@ -97,6 +98,9 @@ curl localhost:8081/api/v1/auth/health
   It needs an ingress controller (ingress-nginx) plus a real host and the
   `digicore-tls` secret; without a controller the Ingress object is created but
   inert.
-- **Network policy**: `SECURITY.md §5.1` also calls for restricting service-to-
-  service traffic with a NetworkPolicy (default-deny + explicit allows). Not yet
-  included — a sensible next hardening step.
+- **Network policy**: `60-network-policy.yaml` enforces `SECURITY.md §5.1`
+  (default-deny ingress + an allowlist for ingress→services and
+  services→postgres/nats). It needs a CNI that enforces NetworkPolicy (Calico,
+  Cilium, …); egress is left open so DNS and ai-svc's outbound calls keep working.
+  Add new vertical services to the `app In (...)` selectors when they need the
+  database or event bus.
