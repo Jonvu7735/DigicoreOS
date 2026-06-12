@@ -31,6 +31,10 @@ pub fn router(state: AppState) -> Router {
             get(handlers::cargo::list).post(handlers::cargo::add),
         )
         .route(
+            "/shipments/{shipment_id}/history",
+            get(handlers::shipments::history),
+        )
+        .route(
             "/shipments/{shipment_id}/book",
             post(handlers::shipments::book),
         )

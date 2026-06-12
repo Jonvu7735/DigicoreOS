@@ -7,12 +7,17 @@ use uuid::Uuid;
 
 use crate::domain::shared::error::DomainResult;
 use crate::domain::shared::types::TenantId;
-use crate::domain::shipments::entities::{CargoLine, ExportShipment};
+use crate::domain::shipments::entities::{CargoLine, ExportShipment, ShipmentStatusChange};
 
 #[async_trait]
 pub trait ShipmentRepository: Send + Sync {
-    /// Insert a new shipment (no event — `Draft` is an internal state).
-    async fn insert(&self, shipment: &ExportShipment) -> DomainResult<()>;
+    /// Insert a new shipment plus its opening status-history entry (the creation
+    /// of the `Draft`), in one transaction. No event — `Draft` is internal.
+    async fn insert(
+        &self,
+        shipment: &ExportShipment,
+        opening: &ShipmentStatusChange,
+    ) -> DomainResult<()>;
     async fn list_in_tenant(
         &self,
         tenant: &TenantId,
@@ -31,12 +36,20 @@ pub trait ShipmentRepository: Send + Sync {
         tenant: &TenantId,
         order_id: &str,
     ) -> DomainResult<Option<ExportShipment>>;
-    /// Persist the shipment's new status and enqueue `event`, in one transaction.
+    /// Persist the shipment's new status, append the status-history `change`, and
+    /// enqueue `event` — all in one transaction.
     async fn save_status(
         &self,
         shipment: &ExportShipment,
+        change: &ShipmentStatusChange,
         event: &OutboxMessage,
     ) -> DomainResult<()>;
+    /// The shipment's status timeline (oldest first).
+    async fn list_status_history(
+        &self,
+        tenant: &TenantId,
+        shipment_id: &Uuid,
+    ) -> DomainResult<Vec<ShipmentStatusChange>>;
 }
 
 /// Repository for a shipment's cargo lines (the packing-list rows).

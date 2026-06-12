@@ -6,12 +6,20 @@ import { useApi } from "../api/useApi";
 
 type Shipment = components["schemas"]["Shipment"];
 type CargoLine = components["schemas"]["CargoLine"];
+type StatusChange = components["schemas"]["ShipmentStatusChange"];
+
+function fmtTime(iso?: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+}
 
 export function ShipmentDetailPage() {
   const api = useApi();
   const { id = "" } = useParams();
   const [shipment, setShipment] = useState<Shipment | null>(null);
   const [lines, setLines] = useState<CargoLine[]>([]);
+  const [history, setHistory] = useState<StatusChange[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,11 +41,15 @@ export function ShipmentDetailPage() {
       api.GET("/api/v1/trade-export/shipments/{shipment_id}/cargo", {
         params: { path: { shipment_id: id } },
       }),
-    ]).then(([ship, cargo]) => {
+      api.GET("/api/v1/trade-export/shipments/{shipment_id}/history", {
+        params: { path: { shipment_id: id } },
+      }),
+    ]).then(([ship, cargo, hist]) => {
       if (!active) return;
       if (ship.error || !ship.data) setError("Không tải được lô hàng.");
       else setShipment(ship.data);
       if (!cargo.error && cargo.data) setLines(cargo.data);
+      if (!hist.error && hist.data) setHistory(hist.data);
       setLoading(false);
     });
     return () => {
@@ -195,6 +207,24 @@ export function ShipmentDetailPage() {
               Lô hàng đã {shipment.status === "DISPATCHED" ? "gửi đi" : "huỷ"} —
               không thể sửa dòng hàng.
             </p>
+          )}
+
+          <h2 style={{ fontSize: "1rem", marginBottom: 0 }}>
+            Lịch sử trạng thái
+          </h2>
+          {history.length === 0 && (
+            <p className="muted">Chưa có lịch sử.</p>
+          )}
+          {history.length > 0 && (
+            <ul className="log">
+              {history.map((h, i) => (
+                <li key={h.id ?? i}>
+                  {h.from_status ? `${h.from_status} → ` : "Tạo · "}
+                  <strong>{h.to_status}</strong>{" "}
+                  <span className="muted">{fmtTime(h.at)}</span>
+                </li>
+              ))}
+            </ul>
           )}
         </>
       )}

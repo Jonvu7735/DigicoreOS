@@ -7,7 +7,9 @@ use uuid::Uuid;
 
 use crate::api::http::dto::error::ApiError;
 use crate::api::http::dto::pagination::ListQuery;
-use crate::api::http::dto::shipments::{CreateShipmentRequest, ShipmentResponse};
+use crate::api::http::dto::shipments::{
+    CreateShipmentRequest, ShipmentResponse, StatusChangeResponse,
+};
 use crate::api::http::middleware::{Auth, READ_ROLES, WRITE_ROLES};
 use crate::bootstrap::wiring::AppState;
 use crate::domain::shared::types::TenantId;
@@ -61,6 +63,24 @@ pub async fn get(
     let tenant = TenantId(auth.0.tenant_id);
     let shipment = state.shipments.get(&tenant, &shipment_id).await?;
     Ok(Json(shipment.into()))
+}
+
+/// `GET /api/v1/trade-export/shipments/{shipment_id}/history` — status timeline.
+pub async fn history(
+    State(state): State<AppState>,
+    auth: Auth,
+    Path(shipment_id): Path<Uuid>,
+) -> Result<Json<Vec<StatusChangeResponse>>, ApiError> {
+    auth.require_any_role(&READ_ROLES)?;
+    let tenant = TenantId(auth.0.tenant_id);
+    let history = state
+        .shipments
+        .list_status_history(&tenant, &shipment_id)
+        .await?
+        .into_iter()
+        .map(StatusChangeResponse::from)
+        .collect();
+    Ok(Json(history))
 }
 
 /// `POST /api/v1/trade-export/shipments/{shipment_id}/book` — book + emit event.
