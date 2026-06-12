@@ -22,16 +22,68 @@ impl Tier {
         }
     }
 
-    /// `GOLD` from 10,000 currency units of lifetime spend, `SILVER` from 1,000
-    /// (amounts are minor units, so 1_000_000 / 100_000).
+    /// Tier under the platform-default rules (kept for convenience / tests).
     pub fn from_lifetime_spend(minor: i64) -> Self {
-        if minor >= 1_000_000 {
+        LoyaltyRules::default().tier_for(minor)
+    }
+}
+
+/// Per-tenant loyalty program policy: how spend converts to points and where the
+/// tier boundaries sit. Defaults match the platform's original constants, so a
+/// tenant that never configures anything behaves exactly as before.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LoyaltyRules {
+    /// Minor currency units of spend per 1 earned point.
+    pub minor_per_point: i64,
+    /// Lifetime spend (minor units) at which SILVER begins.
+    pub silver_min: i64,
+    /// Lifetime spend (minor units) at which GOLD begins.
+    pub gold_min: i64,
+}
+
+impl Default for LoyaltyRules {
+    fn default() -> Self {
+        Self {
+            minor_per_point: 100,
+            silver_min: 100_000,
+            gold_min: 1_000_000,
+        }
+    }
+}
+
+impl LoyaltyRules {
+    /// Points earned for a spend amount (minor units), floor-divided by the rate.
+    pub fn points_for(&self, spend_minor: i64) -> i64 {
+        if self.minor_per_point <= 0 {
+            return 0;
+        }
+        spend_minor.max(0) / self.minor_per_point
+    }
+
+    /// Tier for a lifetime-spend amount under these rules.
+    pub fn tier_for(&self, lifetime_spend_minor: i64) -> Tier {
+        if lifetime_spend_minor >= self.gold_min {
             Tier::Gold
-        } else if minor >= 100_000 {
+        } else if lifetime_spend_minor >= self.silver_min {
             Tier::Silver
         } else {
             Tier::Bronze
         }
+    }
+
+    /// Reject nonsensical policy (non-positive rate, negative or out-of-order
+    /// thresholds) before it is persisted.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.minor_per_point <= 0 {
+            return Err("minor_per_point must be > 0".into());
+        }
+        if self.silver_min < 0 || self.gold_min < 0 {
+            return Err("tier thresholds must be >= 0".into());
+        }
+        if self.gold_min < self.silver_min {
+            return Err("gold_min must be >= silver_min".into());
+        }
+        Ok(())
     }
 }
 

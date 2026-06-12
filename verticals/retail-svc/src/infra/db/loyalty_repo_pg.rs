@@ -8,7 +8,9 @@ use platform_outbox::{insert_outbox, OutboxMessage};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::domain::loyalty::entities::{LoyaltyAccount, PointsEntryKind, PointsLedgerEntry};
+use crate::domain::loyalty::entities::{
+    LoyaltyAccount, LoyaltyRules, PointsEntryKind, PointsLedgerEntry,
+};
 use crate::domain::loyalty::ports::LoyaltyRepository;
 use crate::domain::shared::error::{DomainError, DomainResult};
 use crate::domain::shared::types::TenantId;
@@ -250,5 +252,49 @@ impl LoyaltyRepository for PgLoyaltyRepo {
         .await
         .map_err(map_db_err)?;
         rows.into_iter().map(to_ledger).collect()
+    }
+
+    async fn get_rules(&self, tenant: &TenantId) -> DomainResult<LoyaltyRules> {
+        let row: Option<(i64, i64, i64)> = sqlx::query_as(
+            "SELECT minor_per_point, silver_min, gold_min FROM loyalty_rules WHERE tenant_id = $1",
+        )
+        .bind(&tenant.0)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_db_err)?;
+        Ok(row
+            .map(|(minor_per_point, silver_min, gold_min)| LoyaltyRules {
+                minor_per_point,
+                silver_min,
+                gold_min,
+            })
+            .unwrap_or_default())
+    }
+
+    async fn set_rules(
+        &self,
+        tenant: &TenantId,
+        rules: &LoyaltyRules,
+        now: DateTime<Utc>,
+    ) -> DomainResult<()> {
+        sqlx::query(
+            "INSERT INTO loyalty_rules \
+             (tenant_id, minor_per_point, silver_min, gold_min, updated_at) \
+             VALUES ($1, $2, $3, $4, $5) \
+             ON CONFLICT (tenant_id) DO UPDATE SET \
+               minor_per_point = EXCLUDED.minor_per_point, \
+               silver_min = EXCLUDED.silver_min, \
+               gold_min = EXCLUDED.gold_min, \
+               updated_at = EXCLUDED.updated_at",
+        )
+        .bind(&tenant.0)
+        .bind(rules.minor_per_point)
+        .bind(rules.silver_min)
+        .bind(rules.gold_min)
+        .bind(now)
+        .execute(&self.pool)
+        .await
+        .map_err(map_write_err)?;
+        Ok(())
     }
 }

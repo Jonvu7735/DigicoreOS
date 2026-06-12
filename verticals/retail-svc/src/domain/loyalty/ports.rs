@@ -6,7 +6,7 @@ use chrono::{DateTime, Utc};
 use platform_outbox::OutboxMessage;
 use uuid::Uuid;
 
-use crate::domain::loyalty::entities::{LoyaltyAccount, PointsLedgerEntry};
+use crate::domain::loyalty::entities::{LoyaltyAccount, LoyaltyRules, PointsLedgerEntry};
 use crate::domain::shared::error::DomainResult;
 use crate::domain::shared::types::TenantId;
 
@@ -56,4 +56,13 @@ pub trait LoyaltyRepository: Send + Sync {
         limit: i64,
         offset: i64,
     ) -> DomainResult<Vec<PointsLedgerEntry>>;
+    /// The tenant's loyalty rules, or the platform default when unconfigured.
+    async fn get_rules(&self, tenant: &TenantId) -> DomainResult<LoyaltyRules>;
+    /// Upsert the tenant's loyalty rules.
+    async fn set_rules(
+        &self,
+        tenant: &TenantId,
+        rules: &LoyaltyRules,
+        now: DateTime<Utc>,
+    ) -> DomainResult<()>;
 }
