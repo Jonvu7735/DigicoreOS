@@ -1,5 +1,6 @@
 //! Postgres adapters for the `reporting_svc` schema (DATA-STRATEGY.md §3.1).
 
+pub mod orders_repo_pg;
 pub mod postgres;
 pub mod sales_repo_pg;
 pub mod snapshot_repo_pg;

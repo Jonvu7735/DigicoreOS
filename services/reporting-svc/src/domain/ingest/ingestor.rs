@@ -4,19 +4,22 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use event_models::erp::{subjects, OrderPaid};
+use event_models::erp::{subjects, OrderCreated, OrderPaid};
 use platform_events::{HandlerError, HandlerResult, InboundEventHandler};
 
+use crate::domain::orders::entities::NewOrderFact;
+use crate::domain::orders::ports::OrdersProjection;
 use crate::domain::sales::ports::SalesProjection;
 use crate::domain::shared::types::TenantId;
 
 pub struct EventIngestor {
     sales: Arc<dyn SalesProjection>,
+    orders: Arc<dyn OrdersProjection>,
 }
 
 impl EventIngestor {
-    pub fn new(sales: Arc<dyn SalesProjection>) -> Self {
-        Self { sales }
+    pub fn new(sales: Arc<dyn SalesProjection>, orders: Arc<dyn OrdersProjection>) -> Self {
+        Self { sales, orders }
     }
 }
 
@@ -32,6 +35,21 @@ impl InboundEventHandler for EventIngestor {
                     &TenantId(event.header.tenant_id),
                     event.amount_paid,
                 )
+                .await
+                .map_err(|e| HandlerError(e.to_string()))?;
+        } else if subject == subjects::ORDER_CREATED {
+            let event: OrderCreated = serde_json::from_slice(payload)
+                .map_err(|e| HandlerError(format!("malformed OrderCreated payload: {e}")))?;
+            self.orders
+                .apply_order_created(&NewOrderFact {
+                    order_id: event.order_id,
+                    tenant_id: TenantId(event.header.tenant_id),
+                    customer_id: event.customer_id,
+                    total_amount: event.total_amount,
+                    currency: event.currency,
+                    status: event.status,
+                    occurred_at: event.header.occurred_at,
+                })
                 .await
                 .map_err(|e| HandlerError(e.to_string()))?;
         }
@@ -51,6 +69,7 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
+    use crate::domain::orders::entities::{OrdersOverview, ReportedOrder};
     use crate::domain::sales::entities::SalesSummary;
     use crate::domain::shared::error::DomainResult;
     use crate::domain::shared::types::Money;
@@ -83,6 +102,40 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct FakeOrders {
+        applied: Mutex<Vec<(String, i64)>>,
+    }
+    #[async_trait]
+    impl OrdersProjection for FakeOrders {
+        async fn apply_order_created(&self, fact: &NewOrderFact) -> DomainResult<()> {
+            self.applied
+                .lock()
+                .unwrap()
+                .push((fact.order_id.clone(), fact.total_amount));
+            Ok(())
+        }
+        async fn list(&self, _t: &TenantId, _l: i64, _o: i64) -> DomainResult<Vec<ReportedOrder>> {
+            Ok(vec![])
+        }
+        async fn overview(&self, _t: &TenantId) -> DomainResult<OrdersOverview> {
+            Ok(OrdersOverview {
+                order_count: 0,
+                total_amount: Money(0),
+            })
+        }
+    }
+
+    fn ingestor() -> (EventIngestor, Arc<FakeSales>, Arc<FakeOrders>) {
+        let sales = Arc::new(FakeSales::default());
+        let orders = Arc::new(FakeOrders::default());
+        (
+            EventIngestor::new(sales.clone(), orders.clone()),
+            sales,
+            orders,
+        )
+    }
+
     fn order_paid_bytes(tenant: &str, amount: i64) -> (Uuid, Vec<u8>) {
         let event_id = Uuid::now_v7();
         let header = EventHeader::new(
@@ -103,10 +156,30 @@ mod tests {
         (event_id, event.payload_json().unwrap())
     }
 
+    fn order_created_bytes(tenant: &str, order_id: &str, total: i64) -> Vec<u8> {
+        let header = EventHeader::new(
+            Uuid::now_v7(),
+            Utc::now(),
+            tenant.to_string(),
+            "order",
+            order_id.to_string(),
+            "OrderCreated",
+            1,
+        );
+        let event = ErpEvent::OrderCreated(event_models::erp::OrderCreated {
+            header,
+            order_id: order_id.into(),
+            customer_id: "c1".into(),
+            total_amount: total,
+            currency: "USD".into(),
+            status: "NEW".into(),
+        });
+        event.payload_json().unwrap()
+    }
+
     #[tokio::test]
     async fn applies_order_paid_to_sales() {
-        let sales = Arc::new(FakeSales::default());
-        let ingestor = EventIngestor::new(sales.clone());
+        let (ingestor, sales, _orders) = ingestor();
         let (event_id, bytes) = order_paid_bytes("t1", 4200);
 
         ingestor.handle(subjects::ORDER_PAID, &bytes).await.unwrap();
@@ -117,28 +190,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn applies_order_created_to_orders() {
+        let (ingestor, _sales, orders) = ingestor();
+
+        ingestor
+            .handle(
+                subjects::ORDER_CREATED,
+                &order_created_bytes("t1", "o9", 5000),
+            )
+            .await
+            .unwrap();
+
+        let applied = orders.applied.lock().unwrap();
+        assert_eq!(applied.len(), 1);
+        assert_eq!(applied[0], ("o9".to_string(), 5000));
+    }
+
+    #[tokio::test]
     async fn ignores_unprojected_subjects() {
-        let sales = Arc::new(FakeSales::default());
-        let ingestor = EventIngestor::new(sales.clone());
-        let (_id, bytes) = order_paid_bytes("t1", 100);
+        let (ingestor, sales, orders) = ingestor();
 
         // A subject we don't project yet is a no-op (not an error).
         ingestor
-            .handle("platform.erp.order.created", &bytes)
+            .handle(
+                "platform.erp.order.status_changed",
+                &order_paid_bytes("t1", 100).1,
+            )
             .await
             .unwrap();
         assert!(sales.applied.lock().unwrap().is_empty());
+        assert!(orders.applied.lock().unwrap().is_empty());
     }
 
     #[tokio::test]
     async fn rejects_malformed_payload() {
-        let sales = Arc::new(FakeSales::default());
-        let ingestor = EventIngestor::new(sales);
+        let (ingestor, _s, _o) = ingestor();
         let err = ingestor
             .handle(subjects::ORDER_PAID, b"not json")
             .await
             .unwrap_err();
-        // platform_events::HandlerError; message names the decode failure.
         assert!(err.to_string().contains("malformed OrderPaid"));
     }
 }

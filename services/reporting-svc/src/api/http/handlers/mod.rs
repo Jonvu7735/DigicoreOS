@@ -2,5 +2,7 @@
 
 pub mod health;
 pub mod metrics;
+pub mod orders;
+pub mod overview;
 pub mod sales;
 pub mod snapshots;

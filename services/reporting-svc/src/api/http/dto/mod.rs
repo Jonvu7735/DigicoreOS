@@ -2,5 +2,6 @@
 
 pub mod error;
 pub mod pagination;
+pub mod report;
 pub mod sales;
 pub mod snapshots;
