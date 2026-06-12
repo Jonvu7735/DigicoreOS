@@ -25,7 +25,7 @@ Tài liệu này chuẩn hoá **bề mặt API** được expose qua API Gateway
   - HTTP method,
   - Phân nhóm theo domain. [file:2]
 - Không mô tả:
-  - Chi tiết schema request/response → nằm trong OpenAPI/spec riêng.
+  - Chi tiết schema request/response → nằm trong OpenAPI spec riêng: [`docs/openapi.yaml`](openapi.yaml).
   - Logic auth flow (login/refresh/logout) → xem `AUTH-FLOW.md`. [file:3]
   - Ma trận RBAC chi tiết → xem `SECURITY.md`. [file:1]
 

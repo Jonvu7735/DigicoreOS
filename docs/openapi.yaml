@@ -1,0 +1,1666 @@
+# DigicoreOS — OpenAPI v1 (the "OpenAPI/spec riêng" referenced in API-GATEWAY.md §1).
+#
+# API-GATEWAY.md is the source of truth for the URL/method/domain surface; this
+# file adds the machine-readable schema detail it defers, for frontend (Next.js),
+# external clients, and the AI agent's client/handler generation. Keep the two in
+# sync: any route added to API-GATEWAY.md should appear here and vice versa.
+#
+# Conventions (API-GATEWAY.md §2): every path is /api/v1/<domain>/...; most calls
+# require `Authorization: Bearer <JWT>` (RS256, verified per service); tenant is
+# taken from the JWT or an explicit `X-Tenant-Id` header. Every service also
+# exposes unauthenticated `GET /api/v1/<domain>/health` and `/ready` probes
+# (omitted below — they are infra, not part of the business contract). Edge rate
+# limiting (SECURITY.md §5.2) can return 429 on any route; login/refresh are
+# throttled hardest.
+openapi: 3.1.0
+info:
+  title: DigicoreOS Platform API
+  version: 1.0.0
+  description: |
+    Public HTTP contract for the AI-first Rust SaaS platform — six bounded
+    contexts (Auth, ERP, CRM, HRM, Reporting, AI) fronted by a single edge under
+    `/api/v1/`. Monetary amounts are integers in the currency's minor units
+    (e.g. cents) paired with an ISO-4217 `currency`. Identifiers are UUIDs;
+    timestamps are RFC 3339. List endpoints accept `page`/`page_size` and return a
+    paginated envelope.
+  license:
+    name: Proprietary
+servers:
+  - url: https://api.digicore.example.com
+    description: Production edge (replace host to match deploy/k8s/50-ingress.yaml)
+  - url: http://localhost:8080
+    description: Local development (per-service ports 8081-8086 when not behind the edge)
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Auth
+    description: Identity, users, tenants (auth-svc, /api/v1/auth)
+  - name: ERP
+    description: Orders, payments, inventory, products, invoices (core-erp-svc, /api/v1/erp)
+  - name: CRM
+    description: Customers, deals, activities (crm-svc, /api/v1/crm)
+  - name: HRM
+    description: Employees, attendance, leaves (hrm-svc, /api/v1/hrm)
+  - name: Reporting
+    description: Dashboards, summaries, exports (reporting-svc, /api/v1/reporting)
+  - name: AI
+    description: Query, insight, assistant, model management (ai-svc, /api/v1/ai)
+
+paths:
+  # ───────────────────────────── Auth ─────────────────────────────
+  /api/v1/auth/login:
+    post:
+      tags: [Auth]
+      summary: Log in, returning an access/refresh token pair
+      operationId: authLogin
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Authenticated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPair' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Exchange a refresh token for a new access token
+      operationId: authRefresh
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RefreshRequest' }
+      responses:
+        '200':
+          description: Refreshed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPair' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/auth/logout:
+    post:
+      tags: [Auth]
+      summary: Log out, revoking the current refresh token
+      operationId: authLogout
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RefreshRequest' }
+      responses:
+        '204': { description: Logged out }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/auth/me:
+    get:
+      tags: [Auth]
+      summary: Current authenticated user (from the JWT)
+      operationId: authMe
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/auth/users:
+    get:
+      tags: [Auth]
+      summary: List users in the tenant
+      operationId: listUsers
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Search'
+      responses:
+        '200':
+          description: A page of users
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserPage' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Auth]
+      summary: Create a user (admin)
+      operationId: createUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/User' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/auth/users/{user_id}:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    get:
+      tags: [Auth]
+      summary: Get a user
+      operationId: getUser
+      responses:
+        '200':
+          description: The user
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [Auth]
+      summary: Partially update a user
+      operationId: updateUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/User' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Auth]
+      summary: Deactivate or delete a user (per policy)
+      operationId: deleteUser
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/auth/tenants:
+    get:
+      tags: [Auth]
+      summary: List tenants (system/super-admin)
+      operationId: listTenants
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: A page of tenants
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TenantPage' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Auth]
+      summary: Create a tenant
+      operationId: createTenant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Tenant' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tenant' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/auth/tenants/{tenant_id}:
+    parameters:
+      - $ref: '#/components/parameters/TenantPathId'
+    get:
+      tags: [Auth]
+      summary: Get a tenant
+      operationId: getTenant
+      responses:
+        '200':
+          description: The tenant
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tenant' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [Auth]
+      summary: Update a tenant (plan, status, ...)
+      operationId: updateTenant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Tenant' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tenant' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Error' }
+
+  # ───────────────────────────── ERP ─────────────────────────────
+  /api/v1/erp/orders:
+    get:
+      tags: [ERP]
+      summary: List orders
+      operationId: listOrders
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Status'
+        - $ref: '#/components/parameters/FromDate'
+        - $ref: '#/components/parameters/ToDate'
+        - name: customer_id
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: A page of orders
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrderPage' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [ERP]
+      summary: Create an order
+      operationId: createOrder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Order' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/erp/orders/{order_id}:
+    parameters:
+      - $ref: '#/components/parameters/OrderId'
+    get:
+      tags: [ERP]
+      summary: Get an order
+      operationId: getOrder
+      responses:
+        '200':
+          description: The order
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [ERP]
+      summary: Partially update an order
+      operationId: updateOrder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Order' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/erp/orders/{order_id}/confirm:
+    parameters: [{ $ref: '#/components/parameters/OrderId' }]
+    post:
+      tags: [ERP]
+      summary: Confirm an order
+      operationId: confirmOrder
+      responses:
+        '200':
+          description: Confirmed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/erp/orders/{order_id}/complete:
+    parameters: [{ $ref: '#/components/parameters/OrderId' }]
+    post:
+      tags: [ERP]
+      summary: Mark an order complete
+      operationId: completeOrder
+      responses:
+        '200':
+          description: Completed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/erp/orders/{order_id}/cancel:
+    parameters: [{ $ref: '#/components/parameters/OrderId' }]
+    post:
+      tags: [ERP]
+      summary: Cancel an order
+      operationId: cancelOrder
+      responses:
+        '200':
+          description: Cancelled
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/erp/orders/{order_id}/payments:
+    parameters: [{ $ref: '#/components/parameters/OrderId' }]
+    get:
+      tags: [ERP]
+      summary: List payments for an order
+      operationId: listOrderPayments
+      responses:
+        '200':
+          description: Payments
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Payment' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [ERP]
+      summary: Record a payment against an order
+      operationId: createOrderPayment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Payment' }
+      responses:
+        '201':
+          description: Recorded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Payment' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/erp/inventory:
+    get:
+      tags: [ERP]
+      summary: View stock by product/warehouse
+      operationId: listInventory
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: product_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: warehouse_id
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Stock levels
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InventoryItemPage' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/erp/inventory/adjustments:
+    get:
+      tags: [ERP]
+      summary: List stock adjustments
+      operationId: listInventoryAdjustments
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Adjustments
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InventoryAdjustmentPage' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [ERP]
+      summary: Create a stock adjustment
+      operationId: createInventoryAdjustment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InventoryAdjustment' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InventoryAdjustment' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/erp/products:
+    get:
+      tags: [ERP]
+      summary: List products
+      operationId: listProducts
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Search'
+      responses:
+        '200':
+          description: A page of products
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductPage' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [ERP]
+      summary: Create a product
+      operationId: createProduct
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Product' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/erp/products/{product_id}:
+    parameters: [{ $ref: '#/components/parameters/ProductId' }]
+    get:
+      tags: [ERP]
+      summary: Get a product
+      operationId: getProduct
+      responses:
+        '200':
+          description: The product
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [ERP]
+      summary: Update a product
+      operationId: updateProduct
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Product' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [ERP]
+      summary: Discontinue or delete a product (per policy)
+      operationId: deleteProduct
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/erp/invoices:
+    get:
+      tags: [ERP]
+      summary: List invoices
+      operationId: listInvoices
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Status'
+      responses:
+        '200':
+          description: A page of invoices
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InvoicePage' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [ERP]
+      summary: Create or issue an invoice
+      operationId: createInvoice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Invoice' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Invoice' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/erp/invoices/{invoice_id}:
+    parameters: [{ $ref: '#/components/parameters/InvoiceId' }]
+    get:
+      tags: [ERP]
+      summary: Get an invoice
+      operationId: getInvoice
+      responses:
+        '200':
+          description: The invoice
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Invoice' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/erp/invoices/{invoice_id}/cancel:
+    parameters: [{ $ref: '#/components/parameters/InvoiceId' }]
+    post:
+      tags: [ERP]
+      summary: Cancel an invoice
+      operationId: cancelInvoice
+      responses:
+        '200':
+          description: Cancelled
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Invoice' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        default: { $ref: '#/components/responses/Error' }
+
+  # ───────────────────────────── CRM ─────────────────────────────
+  /api/v1/crm/customers:
+    get:
+      tags: [CRM]
+      summary: List customers
+      operationId: listCustomers
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Search'
+        - name: segment
+          in: query
+          schema: { type: string }
+        - name: owner_id
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: A page of customers
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerPage' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [CRM]
+      summary: Create a customer
+      operationId: createCustomer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Customer' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Customer' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/crm/customers/{customer_id}:
+    parameters: [{ $ref: '#/components/parameters/CustomerId' }]
+    get:
+      tags: [CRM]
+      summary: Get a customer
+      operationId: getCustomer
+      responses:
+        '200':
+          description: The customer
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Customer' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [CRM]
+      summary: Update a customer
+      operationId: updateCustomer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Customer' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Customer' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/crm/customers/{customer_id}/timeline:
+    parameters: [{ $ref: '#/components/parameters/CustomerId' }]
+    get:
+      tags: [CRM]
+      summary: Customer activity timeline (orders, deals, interactions)
+      operationId: getCustomerTimeline
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Timeline entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/TimelineEntry' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/crm/deals:
+    get:
+      tags: [CRM]
+      summary: List deals by pipeline
+      operationId: listDeals
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: stage
+          in: query
+          schema: { $ref: '#/components/schemas/DealStage' }
+      responses:
+        '200':
+          description: A page of deals
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DealPage' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [CRM]
+      summary: Create a deal
+      operationId: createDeal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Deal' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Deal' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/crm/deals/{deal_id}:
+    parameters: [{ $ref: '#/components/parameters/DealId' }]
+    get:
+      tags: [CRM]
+      summary: Get a deal
+      operationId: getDeal
+      responses:
+        '200':
+          description: The deal
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Deal' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [CRM]
+      summary: Update a deal
+      operationId: updateDeal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Deal' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Deal' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/crm/deals/{deal_id}/move-stage:
+    parameters: [{ $ref: '#/components/parameters/DealId' }]
+    post:
+      tags: [CRM]
+      summary: Move a deal to another pipeline stage
+      operationId: moveDealStage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [stage]
+              properties:
+                stage: { $ref: '#/components/schemas/DealStage' }
+      responses:
+        '200':
+          description: Moved
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Deal' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/crm/activities:
+    get:
+      tags: [CRM]
+      summary: List activities (call/email/meeting/task)
+      operationId: listActivities
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: type
+          in: query
+          schema: { $ref: '#/components/schemas/ActivityType' }
+      responses:
+        '200':
+          description: A page of activities
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ActivityPage' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [CRM]
+      summary: Create an activity
+      operationId: createActivity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Activity' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Activity' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/crm/activities/{activity_id}:
+    parameters: [{ $ref: '#/components/parameters/ActivityId' }]
+    get:
+      tags: [CRM]
+      summary: Get an activity
+      operationId: getActivity
+      responses:
+        '200':
+          description: The activity
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Activity' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Error' }
+
+  # ───────────────────────────── HRM ─────────────────────────────
+  /api/v1/hrm/employees:
+    get:
+      tags: [HRM]
+      summary: List employees
+      operationId: listEmployees
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Search'
+      responses:
+        '200':
+          description: A page of employees
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmployeePage' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [HRM]
+      summary: Create an employee record
+      operationId: createEmployee
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Employee' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Employee' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/hrm/employees/{employee_id}:
+    parameters: [{ $ref: '#/components/parameters/EmployeeId' }]
+    get:
+      tags: [HRM]
+      summary: Get an employee
+      operationId: getEmployee
+      responses:
+        '200':
+          description: The employee
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Employee' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [HRM]
+      summary: Update an employee
+      operationId: updateEmployee
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Employee' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Employee' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/hrm/attendances:
+    get:
+      tags: [HRM]
+      summary: List attendance records
+      operationId: listAttendances
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: employee_id
+          in: query
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/FromDate'
+        - $ref: '#/components/parameters/ToDate'
+      responses:
+        '200':
+          description: A page of attendance records
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AttendancePage' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [HRM]
+      summary: Record attendance (check-in/check-out)
+      operationId: createAttendance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Attendance' }
+      responses:
+        '201':
+          description: Recorded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Attendance' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/hrm/leaves:
+    get:
+      tags: [HRM]
+      summary: List leave requests
+      operationId: listLeaves
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Status'
+      responses:
+        '200':
+          description: A page of leave requests
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LeavePage' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [HRM]
+      summary: Create a leave request
+      operationId: createLeave
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Leave' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Leave' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/hrm/leaves/{leave_id}:
+    parameters: [{ $ref: '#/components/parameters/LeaveId' }]
+    patch:
+      tags: [HRM]
+      summary: Update or approve/reject a leave request
+      operationId: updateLeave
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Leave' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Leave' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Error' }
+
+  # ─────────────────────────── Reporting ───────────────────────────
+  /api/v1/reporting/overview:
+    get:
+      tags: [Reporting]
+      summary: Headline KPI overview (revenue, orders, inventory, HRM, CRM)
+      operationId: reportingOverview
+      responses:
+        '200':
+          description: KPI overview
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReportData' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/reporting/sales-summary:
+    get:
+      tags: [Reporting]
+      summary: Sales totals by day/week/month
+      operationId: reportingSalesSummary
+      parameters:
+        - $ref: '#/components/parameters/Granularity'
+        - $ref: '#/components/parameters/FromDate'
+        - $ref: '#/components/parameters/ToDate'
+      responses:
+        '200':
+          description: Sales summary
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReportData' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/reporting/inventory-summary:
+    get:
+      tags: [Reporting]
+      summary: Inventory summary
+      operationId: reportingInventorySummary
+      responses:
+        '200':
+          description: Inventory summary
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReportData' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/reporting/crm-funnel:
+    get:
+      tags: [Reporting]
+      summary: CRM funnel (deal count per stage)
+      operationId: reportingCrmFunnel
+      responses:
+        '200':
+          description: CRM funnel
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReportData' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/reporting/hrm-summary:
+    get:
+      tags: [Reporting]
+      summary: HRM overview (headcount, attendance, ...)
+      operationId: reportingHrmSummary
+      responses:
+        '200':
+          description: HRM summary
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReportData' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/reporting/orders:
+    get:
+      tags: [Reporting]
+      summary: Detailed order report
+      operationId: reportingOrders
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/FromDate'
+        - $ref: '#/components/parameters/ToDate'
+      responses:
+        '200':
+          description: Order report
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReportData' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/reporting/customers:
+    get:
+      tags: [Reporting]
+      summary: Detailed customer report
+      operationId: reportingCustomers
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Customer report
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReportData' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/reporting/employees:
+    get:
+      tags: [Reporting]
+      summary: Employee report
+      operationId: reportingEmployees
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Employee report
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReportData' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/reporting/export:
+    get:
+      tags: [Reporting]
+      summary: Export a report (CSV/Excel/PDF)
+      operationId: reportingExport
+      parameters:
+        - name: report
+          in: query
+          required: true
+          description: Which report to export (e.g. sales-summary, orders).
+          schema: { type: string }
+        - name: format
+          in: query
+          required: true
+          schema: { type: string, enum: [csv, xlsx, pdf] }
+        - $ref: '#/components/parameters/FromDate'
+        - $ref: '#/components/parameters/ToDate'
+      responses:
+        '200':
+          description: The exported file
+          content:
+            text/csv: { schema: { type: string } }
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, format: binary }
+            application/pdf:
+              schema: { type: string, format: binary }
+        default: { $ref: '#/components/responses/Error' }
+
+  # ───────────────────────────── AI ─────────────────────────────
+  /api/v1/ai/query:
+    post:
+      tags: [AI]
+      summary: Ask the AI a question over platform data (RAG + business logic)
+      operationId: aiQuery
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AiQueryRequest' }
+      responses:
+        '200':
+          description: Answer
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AiResponse' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/ai/insight:
+    post:
+      tags: [AI]
+      summary: Generate an insight (revenue analysis, at-risk customers, ...)
+      operationId: aiInsight
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AiInsightRequest' }
+      responses:
+        '200':
+          description: Insight
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AiResponse' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/ai/assist:
+    post:
+      tags: [AI]
+      summary: Contextual assistant for a business screen
+      operationId: aiAssist
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AiAssistRequest' }
+      responses:
+        '200':
+          description: Assistant response
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AiResponse' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/ai/models:
+    get:
+      tags: [AI]
+      summary: List available models/configs
+      operationId: listAiModels
+      responses:
+        '200':
+          description: Models
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/AiModel' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/ai/models/reload:
+    post:
+      tags: [AI]
+      summary: Reload model/prompt configuration (admin)
+      operationId: reloadAiModels
+      responses:
+        '202': { description: Reload accepted }
+        default: { $ref: '#/components/responses/Error' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: RS256 access token from /api/v1/auth/login, verified per service.
+
+  parameters:
+    TenantHeader:
+      name: X-Tenant-Id
+      in: header
+      required: false
+      description: Tenant id; optional when the JWT already carries the tenant (API-GATEWAY.md §2.2).
+      schema: { type: string }
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    PageSize:
+      name: page_size
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 200, default: 20 }
+    Search:
+      name: q
+      in: query
+      description: Free-text search.
+      schema: { type: string }
+    Status:
+      name: status
+      in: query
+      schema: { type: string }
+    FromDate:
+      name: from_date
+      in: query
+      schema: { type: string, format: date }
+    ToDate:
+      name: to_date
+      in: query
+      schema: { type: string, format: date }
+    Granularity:
+      name: granularity
+      in: query
+      schema: { type: string, enum: [day, week, month], default: day }
+    UserId:
+      name: user_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    TenantPathId:
+      name: tenant_id
+      in: path
+      required: true
+      schema: { type: string }
+    OrderId:
+      name: order_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ProductId:
+      name: product_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    InvoiceId:
+      name: invoice_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    CustomerId:
+      name: customer_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    DealId:
+      name: deal_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ActivityId:
+      name: activity_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    EmployeeId:
+      name: employee_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    LeaveId:
+      name: leave_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+
+  responses:
+    Error:
+      description: Unexpected error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Missing or invalid credentials
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Authenticated but not permitted (see SECURITY.md RBAC)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: Invalid state transition for the resource
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: Rate limited at the edge (SECURITY.md §5.2)
+      headers:
+        Retry-After:
+          schema: { type: integer }
+          description: Seconds to wait before retrying.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string, description: Machine-readable error code, example: validation_error }
+        message: { type: string, description: Human-readable message }
+        request_id: { type: string, description: Correlates with server logs/traces }
+        details:
+          type: array
+          description: Optional field-level problems.
+          items:
+            type: object
+            properties:
+              field: { type: string }
+              message: { type: string }
+    PageMeta:
+      type: object
+      properties:
+        page: { type: integer }
+        page_size: { type: integer }
+        total: { type: integer }
+
+    # ---- Auth ----
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, format: password, writeOnly: true }
+        tenant_id: { type: string, description: Optional when the email is globally unique }
+    RefreshRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token: { type: string }
+    TokenPair:
+      type: object
+      required: [access_token, token_type, expires_in]
+      properties:
+        access_token: { type: string }
+        refresh_token: { type: string }
+        token_type: { type: string, enum: [Bearer], default: Bearer }
+        expires_in: { type: integer, description: Access-token lifetime in seconds }
+    User:
+      type: object
+      required: [email]
+      properties:
+        id: { type: string, format: uuid, readOnly: true }
+        tenant_id: { type: string, readOnly: true }
+        email: { type: string, format: email }
+        full_name: { type: string }
+        password: { type: string, format: password, writeOnly: true }
+        roles:
+          type: array
+          items: { type: string }
+          description: RBAC roles (see SECURITY.md).
+        status: { type: string, enum: [active, disabled], readOnly: true }
+        created_at: { type: string, format: date-time, readOnly: true }
+    UserPage:
+      type: object
+      allOf: [{ $ref: '#/components/schemas/PageMeta' }]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/User' } }
+    Tenant:
+      type: object
+      required: [name]
+      properties:
+        id: { type: string, readOnly: true }
+        name: { type: string }
+        plan: { type: string, description: Subscription plan }
+        status: { type: string, enum: [active, suspended] }
+        created_at: { type: string, format: date-time, readOnly: true }
+    TenantPage:
+      type: object
+      allOf: [{ $ref: '#/components/schemas/PageMeta' }]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Tenant' } }
+
+    # ---- ERP ----
+    OrderStatus:
+      type: string
+      enum: [pending, confirmed, completed, cancelled]
+    Order:
+      type: object
+      required: [customer_id]
+      properties:
+        id: { type: string, format: uuid, readOnly: true }
+        tenant_id: { type: string, readOnly: true }
+        customer_id: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/OrderStatus' }
+        total_amount: { type: integer, format: int64, description: Total in minor units, readOnly: true }
+        currency: { type: string, description: ISO 4217, example: USD }
+        note: { type: string }
+        lines:
+          type: array
+          items: { $ref: '#/components/schemas/OrderLine' }
+        created_at: { type: string, format: date-time, readOnly: true }
+    OrderLine:
+      type: object
+      required: [product_id, quantity]
+      properties:
+        product_id: { type: string, format: uuid }
+        quantity: { type: integer, minimum: 1 }
+        unit_price: { type: integer, format: int64, description: Minor units }
+    OrderPage:
+      type: object
+      allOf: [{ $ref: '#/components/schemas/PageMeta' }]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Order' } }
+    Payment:
+      type: object
+      required: [amount, currency]
+      properties:
+        id: { type: string, format: uuid, readOnly: true }
+        order_id: { type: string, format: uuid, readOnly: true }
+        amount: { type: integer, format: int64, description: Minor units }
+        currency: { type: string, example: USD }
+        method: { type: string, description: e.g. cash, card, transfer }
+        paid_at: { type: string, format: date-time, readOnly: true }
+    Product:
+      type: object
+      required: [sku, name]
+      properties:
+        id: { type: string, format: uuid, readOnly: true }
+        tenant_id: { type: string, readOnly: true }
+        sku: { type: string }
+        name: { type: string }
+        price: { type: integer, format: int64, description: Minor units }
+        currency: { type: string, example: USD }
+        category: { type: string }
+        created_at: { type: string, format: date-time, readOnly: true }
+    ProductPage:
+      type: object
+      allOf: [{ $ref: '#/components/schemas/PageMeta' }]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Product' } }
+    InventoryItem:
+      type: object
+      properties:
+        product_id: { type: string, format: uuid }
+        warehouse_id: { type: string }
+        quantity: { type: integer, format: int64 }
+    InventoryItemPage:
+      type: object
+      allOf: [{ $ref: '#/components/schemas/PageMeta' }]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/InventoryItem' } }
+    InventoryAdjustment:
+      type: object
+      required: [product_id, warehouse_id, delta]
+      properties:
+        id: { type: string, format: uuid, readOnly: true }
+        product_id: { type: string, format: uuid }
+        warehouse_id: { type: string }
+        delta: { type: integer, format: int64, description: Signed quantity change }
+        reason: { type: string }
+        created_at: { type: string, format: date-time, readOnly: true }
+    InventoryAdjustmentPage:
+      type: object
+      allOf: [{ $ref: '#/components/schemas/PageMeta' }]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/InventoryAdjustment' } }
+    InvoiceStatus:
+      type: string
+      enum: [draft, issued, cancelled]
+    Invoice:
+      type: object
+      properties:
+        id: { type: string, format: uuid, readOnly: true }
+        order_id: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/InvoiceStatus' }
+        amount: { type: integer, format: int64, description: Minor units, readOnly: true }
+        currency: { type: string, example: USD }
+        issued_at: { type: string, format: date-time, readOnly: true }
+    InvoicePage:
+      type: object
+      allOf: [{ $ref: '#/components/schemas/PageMeta' }]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Invoice' } }
+
+    # ---- CRM ----
+    Customer:
+      type: object
+      required: [name]
+      properties:
+        id: { type: string, format: uuid, readOnly: true }
+        tenant_id: { type: string, readOnly: true }
+        name: { type: string }
+        email: { type: string, format: email }
+        phone: { type: string }
+        segment: { type: string }
+        owner_id: { type: string, format: uuid, description: Sales owner }
+        created_at: { type: string, format: date-time, readOnly: true }
+    CustomerPage:
+      type: object
+      allOf: [{ $ref: '#/components/schemas/PageMeta' }]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Customer' } }
+    DealStage:
+      type: string
+      enum: [new, qualified, proposal, won, lost]
+    Deal:
+      type: object
+      required: [title]
+      properties:
+        id: { type: string, format: uuid, readOnly: true }
+        customer_id: { type: string, format: uuid }
+        title: { type: string }
+        stage: { $ref: '#/components/schemas/DealStage' }
+        amount: { type: integer, format: int64, description: Minor units }
+        currency: { type: string, example: USD }
+        owner_id: { type: string, format: uuid }
+        created_at: { type: string, format: date-time, readOnly: true }
+    DealPage:
+      type: object
+      allOf: [{ $ref: '#/components/schemas/PageMeta' }]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Deal' } }
+    ActivityType:
+      type: string
+      enum: [call, email, meeting, task]
+    Activity:
+      type: object
+      required: [type]
+      properties:
+        id: { type: string, format: uuid, readOnly: true }
+        type: { $ref: '#/components/schemas/ActivityType' }
+        customer_id: { type: string, format: uuid }
+        deal_id: { type: string, format: uuid }
+        subject: { type: string }
+        note: { type: string }
+        due_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time, readOnly: true }
+    ActivityPage:
+      type: object
+      allOf: [{ $ref: '#/components/schemas/PageMeta' }]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Activity' } }
+    TimelineEntry:
+      type: object
+      properties:
+        kind: { type: string, description: e.g. order, deal, activity }
+        ref_id: { type: string }
+        summary: { type: string }
+        occurred_at: { type: string, format: date-time }
+
+    # ---- HRM ----
+    Employee:
+      type: object
+      required: [full_name]
+      properties:
+        id: { type: string, format: uuid, readOnly: true }
+        tenant_id: { type: string, readOnly: true }
+        full_name: { type: string }
+        email: { type: string, format: email }
+        department: { type: string }
+        title: { type: string }
+        status: { type: string, enum: [active, inactive] }
+        hired_at: { type: string, format: date }
+        created_at: { type: string, format: date-time, readOnly: true }
+    EmployeePage:
+      type: object
+      allOf: [{ $ref: '#/components/schemas/PageMeta' }]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Employee' } }
+    AttendanceType:
+      type: string
+      enum: [check_in, check_out]
+    Attendance:
+      type: object
+      required: [employee_id, type]
+      properties:
+        id: { type: string, format: uuid, readOnly: true }
+        employee_id: { type: string, format: uuid }
+        type: { $ref: '#/components/schemas/AttendanceType' }
+        at: { type: string, format: date-time }
+    AttendancePage:
+      type: object
+      allOf: [{ $ref: '#/components/schemas/PageMeta' }]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Attendance' } }
+    LeaveStatus:
+      type: string
+      enum: [pending, approved, rejected]
+    Leave:
+      type: object
+      required: [employee_id, from_date, to_date]
+      properties:
+        id: { type: string, format: uuid, readOnly: true }
+        employee_id: { type: string, format: uuid }
+        from_date: { type: string, format: date }
+        to_date: { type: string, format: date }
+        reason: { type: string }
+        status: { $ref: '#/components/schemas/LeaveStatus' }
+        created_at: { type: string, format: date-time, readOnly: true }
+    LeavePage:
+      type: object
+      allOf: [{ $ref: '#/components/schemas/PageMeta' }]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Leave' } }
+
+    # ---- Reporting ----
+    ReportData:
+      type: object
+      description: |
+        Report payload. Shape varies per report; `data` carries the rows/metrics
+        and `meta` any pagination or window descriptors.
+      properties:
+        report: { type: string }
+        generated_at: { type: string, format: date-time }
+        data:
+          description: Report rows or metric object.
+          oneOf:
+            - type: object
+              additionalProperties: true
+            - type: array
+              items: { type: object, additionalProperties: true }
+        meta: { type: object, additionalProperties: true }
+
+    # ---- AI ----
+    AiQueryRequest:
+      type: object
+      required: [query]
+      properties:
+        query: { type: string }
+        context: { type: object, additionalProperties: true, description: Optional screen/business context }
+        model: { type: string, description: Optional model override }
+    AiInsightRequest:
+      type: object
+      required: [topic]
+      properties:
+        topic: { type: string, description: e.g. revenue, at_risk_customers }
+        params: { type: object, additionalProperties: true }
+    AiAssistRequest:
+      type: object
+      required: [screen]
+      properties:
+        screen: { type: string, description: Business screen/context key }
+        query: { type: string }
+        context: { type: object, additionalProperties: true }
+    AiResponse:
+      type: object
+      properties:
+        answer: { type: string }
+        data: { type: object, additionalProperties: true, description: Optional structured result }
+        citations:
+          type: array
+          items:
+            type: object
+            properties:
+              source: { type: string }
+              ref: { type: string }
+        model: { type: string }
+    AiModel:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        enabled: { type: boolean }
