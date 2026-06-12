@@ -4,5 +4,6 @@
 //! real LLM/embedding adapter (e.g. the Claude API) is configured — both slot in
 //! behind the same domain port.
 
+pub mod claude_assistant;
 pub mod stub_assistant;
 pub mod stub_generator;

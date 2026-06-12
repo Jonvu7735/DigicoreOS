@@ -20,6 +20,22 @@ pub struct AppConfig {
     /// NATS URL for the event bus; `None` disables the relay + consumer (dev fallback).
     pub nats_url: Option<String>,
     pub jwt: JwtConfig,
+    pub ai: AiConfig,
+}
+
+/// LLM provider settings for the assistant. The real adapter is used only when
+/// BOTH an API key and a model are configured (via env/secrets); otherwise the
+/// service falls back to the deterministic stub — exactly like NATS being
+/// optional. Nothing here has a committed default, so no provider/model
+/// identifier lives in the repo.
+#[derive(Debug, Clone)]
+pub struct AiConfig {
+    /// `ANTHROPIC_API_KEY` — `None`/empty selects the stub assistant.
+    pub api_key: Option<String>,
+    /// `AI_MODEL` — the model id to call; `None`/empty selects the stub assistant.
+    pub model: Option<String>,
+    /// `ANTHROPIC_BASE_URL` — override for the API origin (default api.anthropic.com).
+    pub base_url: String,
 }
 
 /// JWT verification settings. ai-svc only VERIFIES the tokens auth-svc issues,
@@ -50,6 +66,13 @@ impl AppConfig {
                 public_key_pem: load_public_key(&env)?,
                 issuer: env_or("JWT_ISSUER", "auth-svc"),
                 audience: env_or("JWT_AUDIENCE", "platform-api"),
+            },
+            ai: AiConfig {
+                api_key: std::env::var("ANTHROPIC_API_KEY")
+                    .ok()
+                    .filter(|v| !v.is_empty()),
+                model: std::env::var("AI_MODEL").ok().filter(|v| !v.is_empty()),
+                base_url: env_or("ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
             },
         })
     }
