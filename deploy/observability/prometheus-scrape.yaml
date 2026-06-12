@@ -1,0 +1,35 @@
+# Prometheus scrape config for the DigicoreOS platform.
+#
+# Discovers every platform service's `/metrics` endpoint via the Kubernetes API
+# (endpoints role) — no per-service annotations or shared labels needed — and
+# attaches a clean `service` label so dashboards/alerts can group by service.
+#
+# Use it one of two ways:
+#   • vanilla Prometheus: merge the `scrape_configs` below into your prometheus.yml
+#     (this ConfigMap is provided for convenience / GitOps), or
+#   • Prometheus Operator: translate the job into a ServiceMonitor (see README).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: digicore-prometheus-scrape
+  namespace: digicore
+  labels: { app.kubernetes.io/part-of: digicore-observability }
+data:
+  digicore-scrape.yaml: |
+    scrape_configs:
+      - job_name: digicore
+        metrics_path: /metrics
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names: [digicore]
+        relabel_configs:
+          # Keep only the platform service endpoints (skip postgres/nats).
+          - source_labels: [__meta_kubernetes_service_name]
+            regex: auth-svc|core-erp-svc|crm-svc|hrm-svc|reporting-svc|ai-svc|trade-export-svc|retail-svc
+            action: keep
+          # Expose clean `service` / `namespace` labels.
+          - source_labels: [__meta_kubernetes_service_name]
+            target_label: service
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace

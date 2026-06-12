@@ -1,0 +1,53 @@
+# Alerting rules for the DigicoreOS platform (OBSERVABILITY.md §7.2), grounded in
+# the metrics the services actually emit + `up` from scraping.
+#
+# This is a Prometheus Operator `PrometheusRule`. For vanilla Prometheus, copy the
+# `spec.groups` below into a file referenced by `rule_files`. The `release` label
+# must match your operator's `ruleSelector` (kube-prometheus-stack defaults shown).
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: digicore-alerts
+  namespace: digicore
+  labels:
+    app.kubernetes.io/part-of: digicore-observability
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: digicore.availability
+      rules:
+        - alert: DigicoreServiceDown
+          expr: up{service=~"auth-svc|core-erp-svc|crm-svc|hrm-svc|reporting-svc|ai-svc|trade-export-svc|retail-svc"} == 0
+          for: 2m
+          labels: { severity: critical }
+          annotations:
+            summary: "{{ $labels.service }} is down"
+            description: "Prometheus has not scraped {{ $labels.service }} for 2m (up == 0)."
+    - name: digicore.auth
+      rules:
+        # Sustained login failures — possible credential stuffing / brute force
+        # (SECURITY.md §5.2 calls out protecting /auth/login).
+        - alert: DigicoreHighLoginFailureRate
+          expr: sum(rate(auth_login_failed_total[5m])) > 1
+          for: 10m
+          labels: { severity: warning }
+          annotations:
+            summary: "Elevated auth login-failure rate"
+            description: "auth_login_failed_total is averaging >1/s over 5m — investigate for brute force."
+        - alert: DigicoreHighRefreshFailureRate
+          expr: sum(rate(auth_refresh_failed_total[5m])) > 1
+          for: 10m
+          labels: { severity: warning }
+          annotations:
+            summary: "Elevated auth token-refresh failure rate"
+            description: "auth_refresh_failed_total is averaging >1/s over 5m."
+    - name: digicore.events
+      rules:
+        # The event pipeline is failing to apply inbound messages.
+        - alert: DigicoreEventConsumerFailing
+          expr: sum(rate(events_consumed_failed_total[5m])) > 0
+          for: 10m
+          labels: { severity: warning }
+          annotations:
+            summary: "Event consumers are failing"
+            description: "events_consumed_failed_total is increasing over 10m — a handler keeps erroring."
