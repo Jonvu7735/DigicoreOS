@@ -13,12 +13,14 @@ use platform_events::{connect_consumer, InboundEventHandler, NatsConsumer};
 
 use crate::api;
 use crate::bootstrap::config::AppConfig;
+use crate::domain::customers::ports::CustomersProjection;
 use crate::domain::ingest::ingestor::EventIngestor;
 use crate::domain::orders::ports::OrdersProjection;
 use crate::domain::sales::ports::SalesProjection;
 use crate::domain::shared::types::Clock;
 use crate::domain::snapshots::services::SnapshotService;
 use crate::infra;
+use crate::infra::db::customers_repo_pg::PgCustomersRepo;
 use crate::infra::db::orders_repo_pg::PgOrdersRepo;
 use crate::infra::db::sales_repo_pg::PgSalesRepo;
 use crate::infra::db::snapshot_repo_pg::PgSnapshotRepo;
@@ -36,6 +38,8 @@ pub struct AppState {
     pub sales: Arc<dyn SalesProjection>,
     /// Orders read model (per-order facts projected from OrderCreated).
     pub orders: Arc<dyn OrdersProjection>,
+    /// Customers read model (per-customer facts projected from CustomerCreated).
+    pub customers: Arc<dyn CustomersProjection>,
     pub snapshots: Arc<SnapshotService>,
 }
 
@@ -57,8 +61,12 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
     // Read models + the ingestor that updates them from inbound events.
     let sales: Arc<dyn SalesProjection> = Arc::new(PgSalesRepo::new(db.clone()));
     let orders: Arc<dyn OrdersProjection> = Arc::new(PgOrdersRepo::new(db.clone()));
-    let ingestor: Arc<dyn InboundEventHandler> =
-        Arc::new(EventIngestor::new(sales.clone(), orders.clone()));
+    let customers: Arc<dyn CustomersProjection> = Arc::new(PgCustomersRepo::new(db.clone()));
+    let ingestor: Arc<dyn InboundEventHandler> = Arc::new(EventIngestor::new(
+        sales.clone(),
+        orders.clone(),
+        customers.clone(),
+    ));
 
     let clock: Arc<dyn Clock> = Arc::new(SystemClock);
     let snapshots = Arc::new(SnapshotService::new(
@@ -87,6 +95,7 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
         verifier,
         sales,
         orders,
+        customers,
         snapshots,
     })
 }

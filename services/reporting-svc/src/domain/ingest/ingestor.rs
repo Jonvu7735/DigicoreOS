@@ -4,9 +4,12 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use event_models::crm::{subjects as crm_subjects, CustomerCreated};
 use event_models::erp::{subjects, OrderCreated, OrderPaid};
 use platform_events::{HandlerError, HandlerResult, InboundEventHandler};
 
+use crate::domain::customers::entities::NewCustomerFact;
+use crate::domain::customers::ports::CustomersProjection;
 use crate::domain::orders::entities::NewOrderFact;
 use crate::domain::orders::ports::OrdersProjection;
 use crate::domain::sales::ports::SalesProjection;
@@ -15,11 +18,20 @@ use crate::domain::shared::types::TenantId;
 pub struct EventIngestor {
     sales: Arc<dyn SalesProjection>,
     orders: Arc<dyn OrdersProjection>,
+    customers: Arc<dyn CustomersProjection>,
 }
 
 impl EventIngestor {
-    pub fn new(sales: Arc<dyn SalesProjection>, orders: Arc<dyn OrdersProjection>) -> Self {
-        Self { sales, orders }
+    pub fn new(
+        sales: Arc<dyn SalesProjection>,
+        orders: Arc<dyn OrdersProjection>,
+        customers: Arc<dyn CustomersProjection>,
+    ) -> Self {
+        Self {
+            sales,
+            orders,
+            customers,
+        }
     }
 }
 
@@ -52,6 +64,20 @@ impl InboundEventHandler for EventIngestor {
                 })
                 .await
                 .map_err(|e| HandlerError(e.to_string()))?;
+        } else if subject == crm_subjects::CUSTOMER_CREATED {
+            let event: CustomerCreated = serde_json::from_slice(payload)
+                .map_err(|e| HandlerError(format!("malformed CustomerCreated payload: {e}")))?;
+            self.customers
+                .apply_customer_created(&NewCustomerFact {
+                    customer_id: event.customer_id,
+                    tenant_id: TenantId(event.header.tenant_id),
+                    name: event.name,
+                    email: event.email,
+                    segment: event.segment,
+                    occurred_at: event.header.occurred_at,
+                })
+                .await
+                .map_err(|e| HandlerError(e.to_string()))?;
         }
         // Other subjects are not yet projected; ignored so the consumer keeps
         // draining the bus.
@@ -69,6 +95,7 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
+    use crate::domain::customers::entities::ReportedCustomer;
     use crate::domain::orders::entities::{OrdersOverview, ReportedOrder};
     use crate::domain::sales::entities::SalesSummary;
     use crate::domain::shared::error::DomainResult;
@@ -126,13 +153,48 @@ mod tests {
         }
     }
 
-    fn ingestor() -> (EventIngestor, Arc<FakeSales>, Arc<FakeOrders>) {
+    #[derive(Default)]
+    struct FakeCustomers {
+        applied: Mutex<Vec<(String, String)>>,
+    }
+    #[async_trait]
+    impl CustomersProjection for FakeCustomers {
+        async fn apply_customer_created(&self, fact: &NewCustomerFact) -> DomainResult<()> {
+            self.applied
+                .lock()
+                .unwrap()
+                .push((fact.customer_id.clone(), fact.name.clone()));
+            Ok(())
+        }
+        async fn list(
+            &self,
+            _t: &TenantId,
+            _l: i64,
+            _o: i64,
+        ) -> DomainResult<Vec<ReportedCustomer>> {
+            Ok(vec![])
+        }
+        async fn count(&self, _t: &TenantId) -> DomainResult<i64> {
+            Ok(0)
+        }
+    }
+
+    type Fakes = (
+        EventIngestor,
+        Arc<FakeSales>,
+        Arc<FakeOrders>,
+        Arc<FakeCustomers>,
+    );
+
+    fn ingestor() -> Fakes {
         let sales = Arc::new(FakeSales::default());
         let orders = Arc::new(FakeOrders::default());
+        let customers = Arc::new(FakeCustomers::default());
         (
-            EventIngestor::new(sales.clone(), orders.clone()),
+            EventIngestor::new(sales.clone(), orders.clone(), customers.clone()),
             sales,
             orders,
+            customers,
         )
     }
 
@@ -177,9 +239,30 @@ mod tests {
         event.payload_json().unwrap()
     }
 
+    fn customer_created_bytes(tenant: &str, customer_id: &str, name: &str) -> Vec<u8> {
+        let header = EventHeader::new(
+            Uuid::now_v7(),
+            Utc::now(),
+            tenant.to_string(),
+            "customer",
+            customer_id.to_string(),
+            "CustomerCreated",
+            1,
+        );
+        let event = event_models::crm::CrmEvent::CustomerCreated(CustomerCreated {
+            header,
+            customer_id: customer_id.into(),
+            name: name.into(),
+            email: Some("ops@acme.test".into()),
+            phone: None,
+            segment: Some("VIP".into()),
+        });
+        event.payload_json().unwrap()
+    }
+
     #[tokio::test]
     async fn applies_order_paid_to_sales() {
-        let (ingestor, sales, _orders) = ingestor();
+        let (ingestor, sales, _orders, _customers) = ingestor();
         let (event_id, bytes) = order_paid_bytes("t1", 4200);
 
         ingestor.handle(subjects::ORDER_PAID, &bytes).await.unwrap();
@@ -191,7 +274,7 @@ mod tests {
 
     #[tokio::test]
     async fn applies_order_created_to_orders() {
-        let (ingestor, _sales, orders) = ingestor();
+        let (ingestor, _sales, orders, _customers) = ingestor();
 
         ingestor
             .handle(
@@ -207,8 +290,25 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn applies_customer_created_to_customers() {
+        let (ingestor, _sales, _orders, customers) = ingestor();
+
+        ingestor
+            .handle(
+                crm_subjects::CUSTOMER_CREATED,
+                &customer_created_bytes("t1", "c9", "Acme Co"),
+            )
+            .await
+            .unwrap();
+
+        let applied = customers.applied.lock().unwrap();
+        assert_eq!(applied.len(), 1);
+        assert_eq!(applied[0], ("c9".to_string(), "Acme Co".to_string()));
+    }
+
+    #[tokio::test]
     async fn ignores_unprojected_subjects() {
-        let (ingestor, sales, orders) = ingestor();
+        let (ingestor, sales, orders, customers) = ingestor();
 
         // A subject we don't project yet is a no-op (not an error).
         ingestor
@@ -220,11 +320,12 @@ mod tests {
             .unwrap();
         assert!(sales.applied.lock().unwrap().is_empty());
         assert!(orders.applied.lock().unwrap().is_empty());
+        assert!(customers.applied.lock().unwrap().is_empty());
     }
 
     #[tokio::test]
     async fn rejects_malformed_payload() {
-        let (ingestor, _s, _o) = ingestor();
+        let (ingestor, _s, _o, _c) = ingestor();
         let err = ingestor
             .handle(subjects::ORDER_PAID, b"not json")
             .await
