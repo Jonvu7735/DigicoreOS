@@ -13,3 +13,4 @@ resources:
   - 50-ingress.yaml
   - 60-network-policy.yaml
   - 70-trade-export.yaml
+  - 80-retail.yaml

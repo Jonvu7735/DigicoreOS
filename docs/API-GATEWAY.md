@@ -373,6 +373,7 @@ Tại API Gateway/Ingress (Nginx, Envoy, GKE Ingress, Kong, …), quy ước rou
 - `/api/v1/reporting/...` → `reporting-svc`
 - `/api/v1/ai/...`        → `ai-svc`
 - `/api/v1/trade-export/...` → `trade-export-svc` (vertical — `verticals/trade-export-svc`; see its README + `openapi.yaml`)
+- `/api/v1/retail/...` → `retail-svc` (vertical — `verticals/retail-svc`; loyalty)
 
 Có thể dùng:
 

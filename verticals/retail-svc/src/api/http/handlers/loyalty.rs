@@ -1,0 +1,58 @@
+//! Loyalty handlers (`/api/v1/retail/loyalty`). Role-guarded, tenant-scoped.
+
+use axum::extract::{Path, Query, State};
+use axum::Json;
+
+use crate::api::http::dto::error::ApiError;
+use crate::api::http::dto::loyalty::{LoyaltyAccountResponse, RedeemRequest};
+use crate::api::http::dto::pagination::ListQuery;
+use crate::api::http::middleware::{Auth, READ_ROLES, WRITE_ROLES};
+use crate::bootstrap::wiring::AppState;
+use crate::domain::shared::types::TenantId;
+
+/// `GET /api/v1/retail/loyalty` — list loyalty accounts in the tenant.
+pub async fn list(
+    State(state): State<AppState>,
+    auth: Auth,
+    Query(query): Query<ListQuery>,
+) -> Result<Json<Vec<LoyaltyAccountResponse>>, ApiError> {
+    auth.require_any_role(&READ_ROLES)?;
+    let tenant = TenantId(auth.0.tenant_id);
+    let (limit, offset) = query.limit_offset();
+    let accounts = state
+        .loyalty
+        .list(&tenant, limit, offset)
+        .await?
+        .into_iter()
+        .map(LoyaltyAccountResponse::from)
+        .collect();
+    Ok(Json(accounts))
+}
+
+/// `GET /api/v1/retail/loyalty/{customer_id}` — one customer's account.
+pub async fn get(
+    State(state): State<AppState>,
+    auth: Auth,
+    Path(customer_id): Path<String>,
+) -> Result<Json<LoyaltyAccountResponse>, ApiError> {
+    auth.require_any_role(&READ_ROLES)?;
+    let tenant = TenantId(auth.0.tenant_id);
+    let account = state.loyalty.get(&tenant, &customer_id).await?;
+    Ok(Json(account.into()))
+}
+
+/// `POST /api/v1/retail/loyalty/{customer_id}/redeem` — redeem + emit event.
+pub async fn redeem(
+    State(state): State<AppState>,
+    auth: Auth,
+    Path(customer_id): Path<String>,
+    Json(body): Json<RedeemRequest>,
+) -> Result<Json<LoyaltyAccountResponse>, ApiError> {
+    auth.require_any_role(&WRITE_ROLES)?;
+    let tenant = TenantId(auth.0.tenant_id);
+    let account = state
+        .loyalty
+        .redeem(&tenant, &customer_id, body.points)
+        .await?;
+    Ok(Json(account.into()))
+}

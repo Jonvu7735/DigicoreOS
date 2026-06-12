@@ -472,6 +472,30 @@ pub struct ShipmentBooked {
 
 ---
 
+### 3.8. Retail Events (retail-svc — vertical)
+
+> Vertical module (`verticals/retail-svc`). As with trade-export, payloads are
+> defined IN the vertical; it consumes core events and owns the ones it publishes.
+
+#### 3.8.1. PointsRedeemed
+
+- **Subject**: `platform.retail.points.redeemed`
+- **Producer**: `retail-svc`
+- **Consumes**: `platform.erp.order.created` (OrderCreated) → accrues loyalty points.
+- **Consumers**: service loyalty/CSKH nào quan tâm (hiện chưa có).
+
+```rust
+// Defined in verticals/retail-svc (reuses the shared EventHeader envelope).
+pub struct PointsRedeemed {
+    pub header: EventHeader,
+    pub customer_id: String,
+    pub points_redeemed: i64,
+    pub balance_after: i64,
+}
+```
+
+---
+
 ## 4. Schema Rust & Crate event-models
 
 ### 4.1. Cấu trúc crate event-models

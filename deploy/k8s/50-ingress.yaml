@@ -60,6 +60,10 @@ spec:
           - path: /api/v1/trade-export
             pathType: Prefix
             backend: { service: { name: trade-export-svc, port: { number: 8087 } } }
+          # vertical: retail-svc (verticals/retail-svc)
+          - path: /api/v1/retail
+            pathType: Prefix
+            backend: { service: { name: retail-svc, port: { number: 8088 } } }
 ---
 # Sensitive auth endpoints get a much tighter per-IP limit to blunt credential
 # stuffing / brute force — SECURITY.md §5.2 calls /auth/login and /auth/refresh

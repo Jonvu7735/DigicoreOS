@@ -1,0 +1,61 @@
+# retail-svc — second vertical (verticals/retail-svc). Consumes core ERP events
+# (order.created -> accrue loyalty points) and serves /api/v1/retail. Same shape
+# as the core services / trade-export: shared config, RS256 public key, own schema
+# (retail_svc). Image is built from deploy/Dockerfile with
+# MANIFEST_PATH=verticals/retail-svc/Cargo.toml.
+# ----------------------------------------------------------------------------
+# retail-svc (:8088, /api/v1/retail)
+# ----------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: retail-svc
+  namespace: digicore
+  labels: { app: retail-svc }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: retail-svc }
+  template:
+    metadata:
+      labels: { app: retail-svc }
+    spec:
+      containers:
+        - name: retail-svc
+          image: digicore/retail-svc:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: digicore-config
+          ports:
+            - containerPort: 8088
+          volumeMounts:
+            - name: jwt-keys
+              mountPath: /keys
+              readOnly: true
+          readinessProbe:
+            httpGet: { path: /api/v1/retail/ready, port: 8088 }
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /api/v1/retail/health, port: 8088 }
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits: { cpu: "500m", memory: "256Mi" }
+      volumes:
+        - name: jwt-keys
+          secret:
+            secretName: digicore-jwt
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: retail-svc
+  namespace: digicore
+spec:
+  selector: { app: retail-svc }
+  ports:
+    - port: 8088
+      targetPort: 8088
