@@ -15,6 +15,7 @@ platform-auth = { workspace = true }
 platform-events = { workspace = true }
 platform-outbox = { workspace = true }
 platform-observability = { workspace = true }
+platform-ratelimit = { workspace = true }
 tokio = { workspace = true }
 axum = { workspace = true }
 tower = { workspace = true }

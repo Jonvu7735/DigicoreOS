@@ -127,6 +127,17 @@
       "targets": [
         { "expr": "histogram_quantile(0.95, sum by (service, le) (rate(http_request_duration_seconds_bucket[5m])))", "refId": "A", "legendFormat": "{{service}}" }
       ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Rate limiting — per-tenant 429s by service",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 32 },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        { "expr": "sum by (service) (rate(rate_limited_total[5m]))", "refId": "A", "legendFormat": "{{service}}" }
+      ]
     }
   ]
 }

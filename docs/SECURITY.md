@@ -212,6 +212,12 @@ Chi tiết mapping role → permission nên được lưu trong DB (bảng `role
   - Ưu tiên bảo vệ endpoint nhạy cảm:
     - `/auth/login`,
     - `/auth/refresh`. [file:1][file:3]
+- Tại application layer:
+  - Rate limit theo **tenant** (token bucket per-tenant). Tenant chỉ biết được sau
+    khi verify JWT, nên giới hạn này đặt ở app, dùng chung qua
+    `libs/platform-ratelimit` và áp cho mọi business service
+    (`RATE_LIMIT_RPS` / `RATE_LIMIT_BURST`; metric `rate_limited_total{service}`).
+    Bù cho rate limit theo IP ở edge (đa người dùng cùng IP / cùng tenant nhiều IP).
 
 ### 5.3. Input validation & Sanitization
 

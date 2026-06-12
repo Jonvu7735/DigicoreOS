@@ -35,7 +35,8 @@ scraping); the standard HTTP metrics (`OBSERVABILITY.md §4.3`)
 `track_http_metrics` middleware); `auth_login_success_total` /
 `auth_login_failed_total`, `auth_refresh_success_total` /
 `auth_refresh_failed_total`, `auth_register_success_total`;
-`events_published_total`, `events_consumed_total`, `events_consumed_failed_total`.
+`events_published_total`, `events_consumed_total`, `events_consumed_failed_total`;
+`rate_limited_total{service}` (per-tenant rate limiting, `libs/platform-ratelimit`).
 
 > **Tracing**: spans export to OTLP (Jaeger/Tempo) when
 > `OTEL_EXPORTER_OTLP_ENDPOINT` is set; `platform-observability` propagates the W3C

@@ -21,6 +21,7 @@ members = [
     "libs/platform-events",
     "libs/platform-outbox",
     "libs/platform-observability",
+    "libs/platform-ratelimit",
     "services/auth-svc",
     "services/core-erp-svc",
     "services/crm-svc",
@@ -42,6 +43,7 @@ platform-auth = { path = "libs/platform-auth" }
 platform-events = { path = "libs/platform-events" }
 platform-outbox = { path = "libs/platform-outbox" }
 platform-observability = { path = "libs/platform-observability" }
+platform-ratelimit = { path = "libs/platform-ratelimit" }
 
 # --- async runtime & web ---
 tokio = { version = "1", features = ["full"] }

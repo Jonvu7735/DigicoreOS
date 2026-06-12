@@ -22,6 +22,7 @@ platform-auth = { path = "../../libs/platform-auth" }
 platform-events = { path = "../../libs/platform-events" }
 platform-outbox = { path = "../../libs/platform-outbox" }
 platform-observability = { path = "../../libs/platform-observability" }
+platform-ratelimit = { path = "../../libs/platform-ratelimit" }
 
 # Runtime & web (versions mirror the core workspace).
 tokio = { version = "1", features = ["full"] }
