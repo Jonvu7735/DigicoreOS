@@ -47,6 +47,8 @@ tags:
     description: Dashboards, summaries, exports (reporting-svc, /api/v1/reporting)
   - name: AI
     description: Query, insight, assistant, model management (ai-svc, /api/v1/ai)
+  - name: TradeExport
+    description: Export shipments — first vertical (trade-export-svc, /api/v1/trade-export)
 
 paths:
   # ───────────────────────────── Auth ─────────────────────────────
@@ -1173,6 +1175,75 @@ paths:
         '202': { description: Reload accepted }
         default: { $ref: '#/components/responses/Error' }
 
+  # ───────────────────── Trade-Export (vertical) ─────────────────────
+  /api/v1/trade-export/shipments:
+    get:
+      tags: [TradeExport]
+      summary: List export shipments
+      operationId: listShipments
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: A page of shipments
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ShipmentPage' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [TradeExport]
+      summary: Create an export shipment
+      operationId: createShipment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Shipment' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Shipment' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/trade-export/shipments/{shipment_id}:
+    parameters:
+      - name: shipment_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [TradeExport]
+      summary: Get an export shipment
+      operationId: getShipment
+      responses:
+        '200':
+          description: The shipment
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Shipment' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/trade-export/shipments/{shipment_id}/book:
+    parameters:
+      - name: shipment_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [TradeExport]
+      summary: Book a draft shipment (DRAFT→BOOKED, emits ShipmentBooked)
+      operationId: bookShipment
+      responses:
+        '200':
+          description: Booked
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Shipment' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        default: { $ref: '#/components/responses/Error' }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1664,3 +1735,27 @@ components:
         id: { type: string }
         name: { type: string }
         enabled: { type: boolean }
+
+    # ---- Trade-Export (vertical) ----
+    ShipmentStatus:
+      type: string
+      enum: [DRAFT, BOOKED, DISPATCHED, CANCELLED]
+    Shipment:
+      type: object
+      required: [destination_country, incoterm]
+      properties:
+        id: { type: string, format: uuid, readOnly: true }
+        tenant_id: { type: string, readOnly: true }
+        order_id:
+          type: [string, "null"]
+          description: ERP order this shipment fulfils (null for a manual shipment).
+        reference: { type: string, readOnly: true, description: "e.g. EXP-1A2B3C4D" }
+        destination_country: { type: string, description: ISO-3166 alpha-2, example: VN }
+        incoterm: { type: string, example: FOB }
+        status: { $ref: '#/components/schemas/ShipmentStatus' }
+        created_at: { type: string, format: date-time, readOnly: true }
+    ShipmentPage:
+      type: object
+      allOf: [{ $ref: '#/components/schemas/PageMeta' }]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Shipment' } }

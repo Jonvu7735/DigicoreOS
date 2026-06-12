@@ -1,0 +1,61 @@
+# trade-export-svc — first vertical (verticals/trade-export-svc). A standalone
+# service that consumes core ERP events (order.paid -> draft export shipment) and
+# serves /api/v1/trade-export. Same shape as the core services in 40-services.yaml:
+# shared config, RS256 public key, own schema (trade_export_svc). Image is built
+# from deploy/Dockerfile with MANIFEST_PATH=verticals/trade-export-svc/Cargo.toml.
+# ----------------------------------------------------------------------------
+# trade-export-svc (:8087, /api/v1/trade-export)
+# ----------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trade-export-svc
+  namespace: digicore
+  labels: { app: trade-export-svc }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: trade-export-svc }
+  template:
+    metadata:
+      labels: { app: trade-export-svc }
+    spec:
+      containers:
+        - name: trade-export-svc
+          image: digicore/trade-export-svc:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: digicore-config
+          ports:
+            - containerPort: 8087
+          volumeMounts:
+            - name: jwt-keys
+              mountPath: /keys
+              readOnly: true
+          readinessProbe:
+            httpGet: { path: /api/v1/trade-export/ready, port: 8087 }
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /api/v1/trade-export/health, port: 8087 }
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits: { cpu: "500m", memory: "256Mi" }
+      volumes:
+        - name: jwt-keys
+          secret:
+            secretName: digicore-jwt
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: trade-export-svc
+  namespace: digicore
+spec:
+  selector: { app: trade-export-svc }
+  ports:
+    - port: 8087
+      targetPort: 8087

@@ -445,6 +445,33 @@ pub struct AiInsightGenerated {
 
 ---
 
+### 3.7. Trade-Export Events (trade-export-svc — vertical)
+
+> Vertical module (`verticals/trade-export-svc`). Its event payloads are defined
+> IN the vertical, **not** in the shared `event-models` crate (which stays
+> core/platform-only). The vertical *consumes* core events but *owns* the events
+> it publishes.
+
+#### 3.7.1. ShipmentBooked
+
+- **Subject**: `platform.trade_export.shipment.booked`
+- **Producer**: `trade-export-svc`
+- **Consumes**: `platform.erp.order.paid` (OrderPaid) → drafts an export shipment.
+- **Consumers**: bất kỳ service logistics/xuất khẩu nào quan tâm (hiện chưa có).
+
+```rust
+// Defined in verticals/trade-export-svc (reuses the shared EventHeader envelope).
+pub struct ShipmentBooked {
+    pub header: EventHeader,
+    pub shipment_id: String,
+    pub reference: String,
+    pub destination_country: String, // ISO-3166 alpha-2
+    pub order_id: Option<String>,    // ERP order this shipment fulfils, if any
+}
+```
+
+---
+
 ## 4. Schema Rust & Crate event-models
 
 ### 4.1. Cấu trúc crate event-models
