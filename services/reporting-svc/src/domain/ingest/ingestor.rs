@@ -6,10 +6,13 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use event_models::crm::{subjects as crm_subjects, CustomerCreated};
 use event_models::erp::{subjects, OrderCreated, OrderPaid};
+use event_models::hrm::{subjects as hrm_subjects, EmployeeHired};
 use platform_events::{HandlerError, HandlerResult, InboundEventHandler};
 
 use crate::domain::customers::entities::NewCustomerFact;
 use crate::domain::customers::ports::CustomersProjection;
+use crate::domain::employees::entities::NewEmployeeFact;
+use crate::domain::employees::ports::EmployeesProjection;
 use crate::domain::orders::entities::NewOrderFact;
 use crate::domain::orders::ports::OrdersProjection;
 use crate::domain::sales::ports::SalesProjection;
@@ -19,6 +22,7 @@ pub struct EventIngestor {
     sales: Arc<dyn SalesProjection>,
     orders: Arc<dyn OrdersProjection>,
     customers: Arc<dyn CustomersProjection>,
+    employees: Arc<dyn EmployeesProjection>,
 }
 
 impl EventIngestor {
@@ -26,11 +30,13 @@ impl EventIngestor {
         sales: Arc<dyn SalesProjection>,
         orders: Arc<dyn OrdersProjection>,
         customers: Arc<dyn CustomersProjection>,
+        employees: Arc<dyn EmployeesProjection>,
     ) -> Self {
         Self {
             sales,
             orders,
             customers,
+            employees,
         }
     }
 }
@@ -78,6 +84,19 @@ impl InboundEventHandler for EventIngestor {
                 })
                 .await
                 .map_err(|e| HandlerError(e.to_string()))?;
+        } else if subject == hrm_subjects::EMPLOYEE_HIRED {
+            let event: EmployeeHired = serde_json::from_slice(payload)
+                .map_err(|e| HandlerError(format!("malformed EmployeeHired payload: {e}")))?;
+            self.employees
+                .apply_employee_hired(&NewEmployeeFact {
+                    employee_id: event.employee_id,
+                    tenant_id: TenantId(event.header.tenant_id),
+                    full_name: event.full_name,
+                    position: event.position,
+                    occurred_at: event.header.occurred_at,
+                })
+                .await
+                .map_err(|e| HandlerError(e.to_string()))?;
         }
         // Other subjects are not yet projected; ignored so the consumer keeps
         // draining the bus.
@@ -96,6 +115,7 @@ mod tests {
 
     use super::*;
     use crate::domain::customers::entities::ReportedCustomer;
+    use crate::domain::employees::entities::ReportedEmployee;
     use crate::domain::orders::entities::{OrdersOverview, ReportedOrder};
     use crate::domain::sales::entities::SalesSummary;
     use crate::domain::shared::error::DomainResult;
@@ -179,22 +199,56 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct FakeEmployees {
+        applied: Mutex<Vec<(String, String)>>,
+    }
+    #[async_trait]
+    impl EmployeesProjection for FakeEmployees {
+        async fn apply_employee_hired(&self, fact: &NewEmployeeFact) -> DomainResult<()> {
+            self.applied
+                .lock()
+                .unwrap()
+                .push((fact.employee_id.clone(), fact.position.clone()));
+            Ok(())
+        }
+        async fn list(
+            &self,
+            _t: &TenantId,
+            _l: i64,
+            _o: i64,
+        ) -> DomainResult<Vec<ReportedEmployee>> {
+            Ok(vec![])
+        }
+        async fn count(&self, _t: &TenantId) -> DomainResult<i64> {
+            Ok(0)
+        }
+    }
+
     type Fakes = (
         EventIngestor,
         Arc<FakeSales>,
         Arc<FakeOrders>,
         Arc<FakeCustomers>,
+        Arc<FakeEmployees>,
     );
 
     fn ingestor() -> Fakes {
         let sales = Arc::new(FakeSales::default());
         let orders = Arc::new(FakeOrders::default());
         let customers = Arc::new(FakeCustomers::default());
+        let employees = Arc::new(FakeEmployees::default());
         (
-            EventIngestor::new(sales.clone(), orders.clone(), customers.clone()),
+            EventIngestor::new(
+                sales.clone(),
+                orders.clone(),
+                customers.clone(),
+                employees.clone(),
+            ),
             sales,
             orders,
             customers,
+            employees,
         )
     }
 
@@ -260,9 +314,28 @@ mod tests {
         event.payload_json().unwrap()
     }
 
+    fn employee_hired_bytes(tenant: &str, employee_id: &str, position: &str) -> Vec<u8> {
+        let header = EventHeader::new(
+            Uuid::now_v7(),
+            Utc::now(),
+            tenant.to_string(),
+            "employee",
+            employee_id.to_string(),
+            "EmployeeHired",
+            1,
+        );
+        let event = event_models::hrm::HrmEvent::EmployeeHired(EmployeeHired {
+            header,
+            employee_id: employee_id.into(),
+            full_name: "Jane Doe".into(),
+            position: position.into(),
+        });
+        event.payload_json().unwrap()
+    }
+
     #[tokio::test]
     async fn applies_order_paid_to_sales() {
-        let (ingestor, sales, _orders, _customers) = ingestor();
+        let (ingestor, sales, _orders, _customers, _employees) = ingestor();
         let (event_id, bytes) = order_paid_bytes("t1", 4200);
 
         ingestor.handle(subjects::ORDER_PAID, &bytes).await.unwrap();
@@ -274,7 +347,7 @@ mod tests {
 
     #[tokio::test]
     async fn applies_order_created_to_orders() {
-        let (ingestor, _sales, orders, _customers) = ingestor();
+        let (ingestor, _sales, orders, _customers, _employees) = ingestor();
 
         ingestor
             .handle(
@@ -291,7 +364,7 @@ mod tests {
 
     #[tokio::test]
     async fn applies_customer_created_to_customers() {
-        let (ingestor, _sales, _orders, customers) = ingestor();
+        let (ingestor, _sales, _orders, customers, _employees) = ingestor();
 
         ingestor
             .handle(
@@ -307,8 +380,25 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn applies_employee_hired_to_employees() {
+        let (ingestor, _sales, _orders, _customers, employees) = ingestor();
+
+        ingestor
+            .handle(
+                hrm_subjects::EMPLOYEE_HIRED,
+                &employee_hired_bytes("t1", "e9", "Engineer"),
+            )
+            .await
+            .unwrap();
+
+        let applied = employees.applied.lock().unwrap();
+        assert_eq!(applied.len(), 1);
+        assert_eq!(applied[0], ("e9".to_string(), "Engineer".to_string()));
+    }
+
+    #[tokio::test]
     async fn ignores_unprojected_subjects() {
-        let (ingestor, sales, orders, customers) = ingestor();
+        let (ingestor, sales, orders, customers, employees) = ingestor();
 
         // A subject we don't project yet is a no-op (not an error).
         ingestor
@@ -321,11 +411,12 @@ mod tests {
         assert!(sales.applied.lock().unwrap().is_empty());
         assert!(orders.applied.lock().unwrap().is_empty());
         assert!(customers.applied.lock().unwrap().is_empty());
+        assert!(employees.applied.lock().unwrap().is_empty());
     }
 
     #[tokio::test]
     async fn rejects_malformed_payload() {
-        let (ingestor, _s, _o, _c) = ingestor();
+        let (ingestor, _s, _o, _c, _e) = ingestor();
         let err = ingestor
             .handle(subjects::ORDER_PAID, b"not json")
             .await
