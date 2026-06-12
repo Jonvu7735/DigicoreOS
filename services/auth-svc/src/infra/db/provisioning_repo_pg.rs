@@ -7,9 +7,9 @@ use platform_outbox::{insert_outbox, OutboxMessage};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::domain::identity::entities::User;
+use crate::domain::identity::entities::{Tenant, User};
 use crate::domain::identity::ports::ProvisioningRepository;
-use crate::domain::identity::provisioning::TenantProvisioning;
+use crate::domain::identity::provisioning::{NewRole, TenantProvisioning};
 use crate::domain::shared::error::{DomainError, DomainResult};
 use crate::domain::shared::types::TenantId;
 use crate::infra::db::{map_db_err, map_write_err};
@@ -107,6 +107,59 @@ impl ProvisioningRepository for PgProvisioningRepo {
             .map_err(map_write_err)?;
 
         for event in &spec.events {
+            insert_outbox(&mut tx, event).await.map_err(outbox_err)?;
+        }
+
+        tx.commit().await.map_err(map_db_err)?;
+        Ok(())
+    }
+
+    async fn provision_tenant_shell(
+        &self,
+        tenant: &Tenant,
+        roles: &[NewRole],
+        events: &[OutboxMessage],
+    ) -> DomainResult<()> {
+        let mut tx = self.pool.begin().await.map_err(map_db_err)?;
+
+        sqlx::query(
+            "INSERT INTO tenants (id, name, plan, is_active, created_at) \
+             VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(&tenant.id.0)
+        .bind(&tenant.name)
+        .bind(&tenant.plan)
+        .bind(tenant.is_active)
+        .bind(tenant.created_at)
+        .execute(&mut *tx)
+        .await
+        .map_err(map_write_err)?;
+
+        for role in roles {
+            sqlx::query(
+                "INSERT INTO roles (id, tenant_id, name, description) VALUES ($1, $2, $3, $4)",
+            )
+            .bind(role.id.0)
+            .bind(&tenant.id.0)
+            .bind(&role.name)
+            .bind(&role.description)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_write_err)?;
+
+            for code in &role.permission_codes {
+                sqlx::query(
+                    "INSERT INTO role_permissions (role_id, permission_code) VALUES ($1, $2)",
+                )
+                .bind(role.id.0)
+                .bind(code)
+                .execute(&mut *tx)
+                .await
+                .map_err(map_write_err)?;
+            }
+        }
+
+        for event in events {
             insert_outbox(&mut tx, event).await.map_err(outbox_err)?;
         }
 

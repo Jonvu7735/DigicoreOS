@@ -111,6 +111,15 @@ pub struct TenantResponse {
     pub created_at: String,
 }
 
+/// `POST /api/v1/auth/tenants` (super-admin) – create a tenant.
+#[derive(Debug, Deserialize)]
+pub struct CreateTenantRequest {
+    pub name: String,
+    /// Subscription plan; defaults to `free` when omitted.
+    #[serde(default)]
+    pub plan: Option<String>,
+}
+
 /// `PATCH /api/v1/auth/tenants/{id}` – partial update.
 #[derive(Debug, Deserialize)]
 pub struct UpdateTenantRequest {

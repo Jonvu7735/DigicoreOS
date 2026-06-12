@@ -73,4 +73,17 @@ impl TenantRepository for PgTenantRepo {
             .map_err(map_write_err)?;
         Ok(())
     }
+
+    async fn list(&self, limit: i64, offset: i64) -> DomainResult<Vec<Tenant>> {
+        let rows: Vec<TenantRow> = sqlx::query_as(
+            "SELECT id, name, plan, is_active, created_at FROM tenants \
+             ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_db_err)?;
+        Ok(rows.into_iter().map(to_tenant).collect())
+    }
 }

@@ -387,6 +387,45 @@ impl IdentityService {
         Ok(tenant)
     }
 
+    /// Platform super-admin (`auth_tenant_manage`): list all tenants (paginated).
+    pub async fn list_tenants(&self, limit: i64, offset: i64) -> DomainResult<Vec<Tenant>> {
+        self.tenant_repo.list(limit, offset).await
+    }
+
+    /// Platform super-admin (`auth_tenant_manage`): create an owner-less tenant
+    /// with the default roles seeded, then publish `TenantCreated`. Users are
+    /// added afterwards via `create_user`.
+    pub async fn create_tenant(&self, name: String, plan: Option<String>) -> DomainResult<Tenant> {
+        let name = name.trim().to_string();
+        if name.is_empty() {
+            return Err(DomainError::Validation("name is required".into()));
+        }
+        let tenant = Tenant {
+            id: TenantId(Uuid::now_v7().to_string()),
+            name,
+            plan: plan.unwrap_or_else(|| "free".to_string()),
+            is_active: true,
+            created_at: self.clock.now_utc(),
+        };
+        let roles: Vec<NewRole> = rbac::DEFAULT_ROLES
+            .iter()
+            .map(|name| NewRole {
+                id: RoleId(Uuid::now_v7()),
+                name: (*name).to_string(),
+                description: Some(rbac::role_description(name).to_string()),
+                permission_codes: rbac::permissions_for(name)
+                    .into_iter()
+                    .map(String::from)
+                    .collect(),
+            })
+            .collect();
+        let events = vec![outbox_message(&self.tenant_created_event(&tenant))?];
+        self.provisioning
+            .provision_tenant_shell(&tenant, &roles, &events)
+            .await?;
+        Ok(tenant)
+    }
+
     // --- internals -----------------------------------------------------------
 
     /// Issue an access token + a fresh stored refresh token for `(user, tenant)`.
@@ -530,7 +569,7 @@ mod tests {
         AccessTokenClaims, IssuedToken, PasswordHasher, ProvisioningRepository, RefreshTokenHasher,
         RefreshTokenRepository, RoleRepository, TenantRepository, TokenIssuer, UserRepository,
     };
-    use crate::domain::identity::provisioning::TenantProvisioning;
+    use crate::domain::identity::provisioning::{NewRole, TenantProvisioning};
     use crate::domain::shared::error::{DomainError, DomainResult};
     use crate::domain::shared::types::{Clock, Email, RoleId, TenantId, UserId};
     use platform_auth::rbac;
@@ -588,6 +627,9 @@ mod tests {
         async fn update(&self, _tenant: &Tenant) -> DomainResult<()> {
             Ok(())
         }
+        async fn list(&self, _limit: i64, _offset: i64) -> DomainResult<Vec<Tenant>> {
+            Ok(vec![])
+        }
     }
 
     /// Tenant repo that holds one tenant, for tenant get/update tests.
@@ -607,6 +649,9 @@ mod tests {
         async fn update(&self, tenant: &Tenant) -> DomainResult<()> {
             *self.tenant.lock().unwrap() = Some(tenant.clone());
             Ok(())
+        }
+        async fn list(&self, _limit: i64, _offset: i64) -> DomainResult<Vec<Tenant>> {
+            Ok(self.tenant.lock().unwrap().clone().into_iter().collect())
         }
     }
 
@@ -705,6 +750,8 @@ mod tests {
         specs: Mutex<Vec<TenantProvisioning>>,
         users: Mutex<Vec<(User, TenantId, String)>>,
         events: Mutex<Vec<String>>,
+        /// Captured (tenant, role_count) for owner-less shell provisioning.
+        shells: Mutex<Vec<(Tenant, usize)>>,
     }
     impl FakeProvisioningRepo {
         fn record(&self, events: &[OutboxMessage]) {
@@ -719,6 +766,19 @@ mod tests {
         async fn provision_tenant(&self, spec: &TenantProvisioning) -> DomainResult<()> {
             self.record(&spec.events);
             self.specs.lock().unwrap().push(spec.clone());
+            Ok(())
+        }
+        async fn provision_tenant_shell(
+            &self,
+            tenant: &Tenant,
+            roles: &[NewRole],
+            events: &[OutboxMessage],
+        ) -> DomainResult<()> {
+            self.record(events);
+            self.shells
+                .lock()
+                .unwrap()
+                .push((tenant.clone(), roles.len()));
             Ok(())
         }
         async fn provision_user_in_tenant(
@@ -957,10 +1017,14 @@ mod tests {
         assert_eq!(spec.tenant.plan, "free");
         assert_eq!(spec.owner.email.0, "owner@acme.com");
         let owner_role = spec.roles.iter().find(|r| r.name == "OWNER").unwrap();
+        // OWNER holds the full matrix EXCEPT the platform-only auth_tenant_manage.
         assert_eq!(
             owner_role.permission_codes.len(),
-            rbac::ALL_PERMISSIONS.len()
+            rbac::permissions_for("OWNER").len()
         );
+        assert!(!owner_role
+            .permission_codes
+            .contains(&"auth_tenant_manage".to_string()));
 
         // Both events enqueued in the outbox: TenantCreated then UserRegistered.
         assert_eq!(spec.events.len(), 2);
@@ -968,6 +1032,53 @@ mod tests {
             *provisioning.events.lock().unwrap(),
             vec!["TenantCreated".to_string(), "UserRegistered".to_string()]
         );
+    }
+
+    #[tokio::test]
+    async fn create_tenant_seeds_default_roles_and_publishes_tenant_created() {
+        let provisioning = Arc::new(FakeProvisioningRepo::default());
+        let svc = IdentityService::new(
+            Arc::new(FakeUserRepo { users: vec![] }),
+            Arc::new(FakeTenantRepo),
+            Arc::new(FakeRoleRepo {
+                tenants: vec![],
+                roles: vec![],
+            }),
+            Arc::new(FakeRefreshRepo::default()),
+            provisioning.clone(),
+            Arc::new(FakeTokenIssuer),
+            Arc::new(FakePasswordHasher { ok: true }),
+            Arc::new(FakeRefreshHasher::default()),
+            Arc::new(StubClock),
+            1_209_600,
+        );
+
+        let tenant = svc
+            .create_tenant("New Co".into(), Some("pro".into()))
+            .await
+            .unwrap();
+        assert_eq!(tenant.name, "New Co");
+        assert_eq!(tenant.plan, "pro");
+        assert!(tenant.is_active);
+
+        // One owner-less shell, seeded with all five default roles.
+        {
+            let shells = provisioning.shells.lock().unwrap();
+            assert_eq!(shells.len(), 1);
+            assert_eq!(shells[0].0.name, "New Co");
+            assert_eq!(shells[0].1, rbac::DEFAULT_ROLES.len());
+        }
+        // TenantCreated enqueued in the outbox.
+        assert_eq!(
+            *provisioning.events.lock().unwrap(),
+            vec!["TenantCreated".to_string()]
+        );
+
+        // A blank name is rejected before any write.
+        assert!(matches!(
+            svc.create_tenant("   ".into(), None).await.unwrap_err(),
+            DomainError::Validation(_)
+        ));
     }
 
     #[tokio::test]

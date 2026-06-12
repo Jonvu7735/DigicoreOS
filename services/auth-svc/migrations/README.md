@@ -13,3 +13,8 @@ another service's schema**.
   pattern, §3.2) + indexes; seeds the global `permissions` catalogue
   (SECURITY.md §4.3). Tenant-scoped roles + `role_permissions` are created per
   tenant by `create_tenant` / `register` (Phase 1.3).
+- `0002_rbac_contacts_activities_leave.sql` — extends the `permissions`
+  catalogue with CRM contacts/activities + HRM leave codes.
+- `0003_super_admin.sql` — adds the platform `auth_tenant_manage` permission and
+  seeds a `SUPER_ADMIN` role for the `system` tenant, enabling cross-tenant
+  management via `GET`/`POST /api/v1/auth/tenants`.

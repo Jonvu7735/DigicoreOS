@@ -9,14 +9,16 @@
 pub const DEFAULT_ROLES: [&str; 5] = ["OWNER", "ADMIN", "MANAGER", "STAFF", "VIEWER"];
 
 /// Every permission code in the catalogue (mirrors the seed in auth-svc
-/// migrations `0001_init.sql` + `0002_rbac_contacts_activities_leave.sql`).
-pub const ALL_PERMISSIONS: [&str; 41] = [
+/// migrations `0001_init.sql` + `0002_rbac_contacts_activities_leave.sql`
+/// + `0003_super_admin.sql`).
+pub const ALL_PERMISSIONS: [&str; 42] = [
     "auth_user_read",
     "auth_user_create",
     "auth_user_update",
     "auth_user_assign_role",
     "auth_tenant_read",
     "auth_tenant_update_plan",
+    "auth_tenant_manage",
     "erp_order_read",
     "erp_order_create",
     "erp_order_update",
@@ -72,6 +74,7 @@ const BUSINESS_READS: [&str; 11] = [
 /// Human-readable description stored on the seeded role row.
 pub fn role_description(role: &str) -> &'static str {
     match role {
+        "SUPER_ADMIN" => "Platform super-administrator — manages all tenants",
         "OWNER" => "Tenant owner — full control",
         "ADMIN" => "Tenant administrator",
         "MANAGER" => "Department manager",
@@ -85,11 +88,20 @@ pub fn role_description(role: &str) -> &'static str {
 /// gets no permissions.
 pub fn permissions_for(role: &str) -> Vec<&'static str> {
     match role {
-        "OWNER" => ALL_PERMISSIONS.to_vec(),
+        // Platform super-admin (seeded only for the system tenant): the ONLY
+        // role that may manage all tenants via `auth_tenant_manage`.
+        "SUPER_ADMIN" => ALL_PERMISSIONS.to_vec(),
+        // A tenant OWNER has full control of THEIR tenant, but not the
+        // platform-level cross-tenant `auth_tenant_manage` capability.
+        "OWNER" => ALL_PERMISSIONS
+            .iter()
+            .copied()
+            .filter(|p| *p != "auth_tenant_manage")
+            .collect(),
         "ADMIN" => ALL_PERMISSIONS
             .iter()
             .copied()
-            .filter(|p| *p != "auth_tenant_update_plan")
+            .filter(|p| *p != "auth_tenant_update_plan" && *p != "auth_tenant_manage")
             .collect(),
         "MANAGER" => {
             let mut p = vec!["auth_user_read", "auth_tenant_read"];
@@ -153,15 +165,32 @@ mod tests {
     use super::*;
 
     #[test]
-    fn owner_has_every_permission() {
-        assert_eq!(permissions_for("OWNER").len(), ALL_PERMISSIONS.len());
+    fn owner_has_every_permission_except_platform_tenant_management() {
+        let owner = permissions_for("OWNER");
+        assert!(!owner.contains(&"auth_tenant_manage"));
+        assert_eq!(owner.len(), ALL_PERMISSIONS.len() - 1);
     }
 
     #[test]
-    fn admin_lacks_only_plan_change() {
+    fn admin_lacks_plan_change_and_tenant_management() {
         let admin = permissions_for("ADMIN");
         assert!(!admin.contains(&"auth_tenant_update_plan"));
-        assert_eq!(admin.len(), ALL_PERMISSIONS.len() - 1);
+        assert!(!admin.contains(&"auth_tenant_manage"));
+        assert_eq!(admin.len(), ALL_PERMISSIONS.len() - 2);
+    }
+
+    #[test]
+    fn super_admin_manages_tenants_and_no_default_role_does() {
+        let sa = permissions_for("SUPER_ADMIN");
+        assert!(sa.contains(&"auth_tenant_manage"));
+        assert_eq!(sa.len(), ALL_PERMISSIONS.len());
+        // Cross-tenant management must never leak to a per-tenant role.
+        for role in DEFAULT_ROLES {
+            assert!(
+                !permissions_for(role).contains(&"auth_tenant_manage"),
+                "{role} must not hold auth_tenant_manage"
+            );
+        }
     }
 
     #[test]
