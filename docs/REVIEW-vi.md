@@ -239,3 +239,21 @@ Các phát hiện sau đã được vá ngay trong PR này (build + `clippy -D w
 **Thay đổi hạ tầng kèm theo:** CI integration job khởi động NATS bằng `docker run ... nats:2.10 -js`
 (service container không cho override command), giữ nguyên các gate khác. `deploy/docker-compose.dev.yml`
 đã bật sẵn `-js` từ trước.
+
+---
+
+## 12. Khắc phục blocker Go-Live (đã triển khai trong PR này)
+
+Các blocker hạ tầng nêu ở đánh giá sẵn sàng go-live đã được vá ở tầng manifest k8s + observability:
+
+| Blocker | Trạng thái | Thay đổi |
+|---|---|---|
+| NATS JetStream không bền (mất dữ liệu khi restart) | ✅ | `deploy/k8s/30-nats.yaml`: **StatefulSet 3 node, JetStream cluster, PVC `/data` mỗi node**, headless service, PDB `minAvailable: 2` (giữ quorum RAFT). Stream tạo với **R3** qua `JETSTREAM_REPLICAS=3` (`10-config.yaml`); code đọc env, **mặc định 1** nên dev/CI single-node vẫn chạy. |
+| Postgres không backup | ✅ | `20-postgres.yaml`: **CronJob `postgres-backup`** (pg_dump → gzip → PVC riêng, prune >7 ngày, RPO ~1 ngày). HA thật (failover) khuyến nghị dùng operator CloudNativePG/managed — đã ghi chú. |
+| Mọi service `replicas: 1` (không HA) | ✅ | `40-services.yaml` + verticals: **`replicas: 2`**; thêm **PodDisruptionBudget** (`45-pdb.yaml`) và **HPA 2→5 theo CPU** (`46-hpa.yaml`). Scale relay an toàn nhờ dedup `Nats-Msg-Id`. |
+| Network policy cho hạ tầng mới | ✅ | `60-network-policy.yaml`: mở route NATS↔NATS `6222` (ingress + egress) để cluster hình thành; cho backup job egress tới Postgres `5432`. |
+| Cảnh báo DLQ | ✅ | `deploy/observability/alerts.yaml`: `DigicoreEventDeadLettered` (critical) khi có event bị đẩy DLQ. |
+
+**Còn lại (should-have, chưa làm — nên trước GA):** secret management nâng cao (Vault/Sealed Secrets), lockout brute-force cho login, load/perf test + tinh chỉnh resource limits, chiến lược rollback migration, CD tự động, và **HA Postgres thật** qua operator.
+
+> Lưu ý kiểm chứng: các manifest k8s đã được validate cú pháp YAML (đa-document) nhưng **chưa được `kubectl apply`/`kustomize build` trên cluster thật** trong môi trường review — cần kiểm thử trên cluster staging trước khi go-live.

@@ -10,6 +10,8 @@ resources:
   - 20-postgres.yaml
   - 30-nats.yaml
   - 40-services.yaml
+  - 45-pdb.yaml
+  - 46-hpa.yaml
   - 50-ingress.yaml
   - 60-network-policy.yaml
   - 70-trade-export.yaml

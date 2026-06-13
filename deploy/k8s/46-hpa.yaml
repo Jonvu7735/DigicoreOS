@@ -1,0 +1,122 @@
+# Horizontal Pod Autoscalers: scale each stateless service on CPU between 2 and
+# 5 replicas. Requires metrics-server in the cluster. Tune targets after load
+# testing (the review flags capacity planning as a pre-GA task).
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: auth-svc
+  namespace: digicore
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: auth-svc }
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 70 }
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: core-erp-svc
+  namespace: digicore
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: core-erp-svc }
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 70 }
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: crm-svc
+  namespace: digicore
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: crm-svc }
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 70 }
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: hrm-svc
+  namespace: digicore
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: hrm-svc }
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 70 }
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: reporting-svc
+  namespace: digicore
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: reporting-svc }
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 70 }
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ai-svc
+  namespace: digicore
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: ai-svc }
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 70 }
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: trade-export-svc
+  namespace: digicore
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: trade-export-svc }
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 70 }
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: retail-svc
+  namespace: digicore
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: retail-svc }
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 70 }

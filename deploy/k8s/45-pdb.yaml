@@ -1,0 +1,82 @@
+# PodDisruptionBudgets: keep at least one pod of every service running through
+# voluntary disruptions (node drains, cluster upgrades). With replicas: 2 this
+# guarantees zero-downtime maintenance. (NATS has its own quorum PDB in 30-nats.yaml.)
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: auth-svc
+  namespace: digicore
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app: auth-svc }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: core-erp-svc
+  namespace: digicore
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app: core-erp-svc }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: crm-svc
+  namespace: digicore
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app: crm-svc }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: hrm-svc
+  namespace: digicore
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app: hrm-svc }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: reporting-svc
+  namespace: digicore
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app: reporting-svc }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ai-svc
+  namespace: digicore
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app: ai-svc }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: trade-export-svc
+  namespace: digicore
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app: trade-export-svc }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: retail-svc
+  namespace: digicore
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app: retail-svc }

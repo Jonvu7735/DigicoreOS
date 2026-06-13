@@ -1,11 +1,69 @@
-# NATS with JetStream as the event bus (EVENTS.md).
-apiVersion: apps/v1
-kind: Deployment
+# NATS with JetStream as the event bus (EVENTS.md), run as a 3-node clustered
+# StatefulSet with persistent file storage. This is what makes the platform's
+# durability guarantee real: JetStream streams are replicated (R3) and persisted
+# to a PVC per node, so an event survives a broker restart or a single node loss
+# — unlike a single ephemeral broker, which drops everything on restart.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nats-config
+  namespace: digicore
+data:
+  nats.conf: |
+    port: 4222
+    http: 8222
+    # Unique per pod (injected from POD_NAME); NATS expands $VAR from the env.
+    server_name: $POD_NAME
+
+    jetstream {
+      store_dir: "/data"
+      max_memory_store: 256MB
+      max_file_store: 4GB
+    }
+
+    cluster {
+      name: "digicore"
+      port: 6222
+      # Full mesh across the StatefulSet's stable pod DNS (headless `nats` svc).
+      routes: [
+        "nats://nats-0.nats.digicore.svc.cluster.local:6222"
+        "nats://nats-1.nats.digicore.svc.cluster.local:6222"
+        "nats://nats-2.nats.digicore.svc.cluster.local:6222"
+      ]
+    }
+---
+# Headless service: gives each pod stable DNS (nats-N.nats...) for cluster
+# routing, and lets clients (NATS_URL=nats://nats:4222) discover the full
+# cluster via the server INFO protocol.
+apiVersion: v1
+kind: Service
 metadata:
   name: nats
   namespace: digicore
 spec:
-  replicas: 1
+  clusterIP: None
+  selector:
+    app: nats
+  ports:
+    - name: client
+      port: 4222
+      targetPort: 4222
+    - name: cluster
+      port: 6222
+      targetPort: 6222
+    - name: monitor
+      port: 8222
+      targetPort: 8222
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: nats
+  namespace: digicore
+spec:
+  serviceName: nats
+  replicas: 3
+  podManagementPolicy: Parallel
   selector:
     matchLabels:
       app: nats
@@ -17,32 +75,61 @@ spec:
       containers:
         - name: nats
           image: nats:2.10-alpine
-          args: ["-js"] # enable JetStream
+          args: ["--config", "/etc/nats/nats.conf"]
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
           ports:
-            - containerPort: 4222 # client
-            - containerPort: 8222 # monitoring
+            - name: client
+              containerPort: 4222
+            - name: cluster
+              containerPort: 6222
+            - name: monitor
+              containerPort: 8222
           readinessProbe:
             httpGet:
               path: /healthz
               port: 8222
-            initialDelaySeconds: 3
+            initialDelaySeconds: 5
             periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8222
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          volumeMounts:
+            - name: config
+              mountPath: /etc/nats
+            - name: data
+              mountPath: /data
           resources:
-            requests: { cpu: "50m", memory: "64Mi" }
-            limits: { cpu: "500m", memory: "256Mi" }
+            requests: { cpu: "100m", memory: "128Mi" }
+            limits: { cpu: "1", memory: "512Mi" }
+      volumes:
+        - name: config
+          configMap:
+            name: nats-config
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi
 ---
-apiVersion: v1
-kind: Service
+# Keep a quorum (2 of 3) available during voluntary disruptions (node drains,
+# upgrades) so JetStream never loses its RAFT majority.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
 metadata:
   name: nats
   namespace: digicore
 spec:
+  minAvailable: 2
   selector:
-    app: nats
-  ports:
-    - name: client
-      port: 4222
-      targetPort: 4222
-    - name: monitor
-      port: 8222
-      targetPort: 8222
+    matchLabels:
+      app: nats

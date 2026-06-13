@@ -9,6 +9,9 @@ data:
   APP_ENV: "prod"
   DATABASE_URL: "postgres://digicore:digicore@postgres:5432/digicore"
   NATS_URL: "nats://nats:4222"
+  # JetStream streams are replicated across the 3-node NATS cluster (30-nats.yaml)
+  # so a single broker failure cannot lose events. Must be <= the NATS node count.
+  JETSTREAM_REPLICAS: "3"
   JWT_ISSUER: "auth-svc"
   JWT_AUDIENCE: "platform-api"
   # All services verify tokens with the public key (mounted from the digicore-jwt secret).

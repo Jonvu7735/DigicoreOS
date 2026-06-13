@@ -16,7 +16,7 @@ metadata:
   namespace: digicore
   labels: { app: auth-svc }
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels: { app: auth-svc }
   template:
@@ -76,7 +76,7 @@ metadata:
   namespace: digicore
   labels: { app: core-erp-svc }
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels: { app: core-erp-svc }
   template:
@@ -133,7 +133,7 @@ metadata:
   namespace: digicore
   labels: { app: crm-svc }
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels: { app: crm-svc }
   template:
@@ -190,7 +190,7 @@ metadata:
   namespace: digicore
   labels: { app: hrm-svc }
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels: { app: hrm-svc }
   template:
@@ -247,7 +247,7 @@ metadata:
   namespace: digicore
   labels: { app: reporting-svc }
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels: { app: reporting-svc }
   template:
@@ -304,7 +304,7 @@ metadata:
   namespace: digicore
   labels: { app: ai-svc }
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels: { app: ai-svc }
   template:

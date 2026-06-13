@@ -1,5 +1,12 @@
-# Single shared Postgres (one schema per service; DATA-STRATEGY.md). For
-# production prefer a managed/HA database and drop this manifest.
+# Single shared Postgres (one schema per service; DATA-STRATEGY.md) WITH
+# automated daily logical backups + retention.
+#
+# HA NOTE: this is a single primary. For true high availability (automatic
+# failover + streaming replicas) run a managed Postgres or an operator such as
+# CloudNativePG / Zalando, keeping the in-cluster Service name `postgres` so
+# DATABASE_URL stays unchanged. The backup CronJob below bounds data-loss risk
+# (RPO = 1 day; tighten the schedule or add WAL archiving/PITR as needed) and is
+# the minimum bar for go-live.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -10,6 +17,19 @@ spec:
   resources:
     requests:
       storage: 5Gi
+---
+# Separate volume for backup artifacts (kept independent of the data volume so a
+# data-volume loss does not take the backups with it).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: digicore-pgbackup
+  namespace: digicore
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -63,3 +83,58 @@ spec:
   ports:
     - port: 5432
       targetPort: 5432
+---
+# Daily logical backup: pg_dump -> gzip -> PVC, pruning dumps older than 7 days.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-backup
+  namespace: digicore
+spec:
+  schedule: "0 2 * * *" # 02:00 every day
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app: postgres-backup
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: backup
+              image: postgres:16-alpine
+              env:
+                - name: PGHOST
+                  value: postgres
+                - name: POSTGRES_USER
+                  valueFrom:
+                    secretKeyRef: { name: digicore-postgres, key: POSTGRES_USER }
+                - name: POSTGRES_DB
+                  valueFrom:
+                    secretKeyRef: { name: digicore-postgres, key: POSTGRES_DB }
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef: { name: digicore-postgres, key: POSTGRES_PASSWORD }
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -euo pipefail
+                  ts=$(date +%Y%m%d-%H%M%S)
+                  out="/backup/${POSTGRES_DB}-${ts}.sql.gz"
+                  echo "backing up ${POSTGRES_DB} to ${out}"
+                  pg_dump -h "$PGHOST" -U "$POSTGRES_USER" "$POSTGRES_DB" | gzip > "$out"
+                  echo "pruning backups older than 7 days"
+                  find /backup -name "${POSTGRES_DB}-*.sql.gz" -mtime +7 -delete
+                  echo "done"
+              volumeMounts:
+                - name: backup
+                  mountPath: /backup
+          volumes:
+            - name: backup
+              persistentVolumeClaim:
+                claimName: digicore-pgbackup

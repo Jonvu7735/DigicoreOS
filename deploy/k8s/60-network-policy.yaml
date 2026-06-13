@@ -58,7 +58,7 @@ spec:
         - { protocol: TCP, port: 8087 }
         - { protocol: TCP, port: 8088 }
 ---
-# Postgres accepts connections only from the platform services.
+# Postgres accepts connections from the platform services and the backup job.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -72,11 +72,12 @@ spec:
     - from:
         - podSelector:
             matchExpressions:
-              - { key: app, operator: In, values: [auth-svc, core-erp-svc, crm-svc, hrm-svc, reporting-svc, ai-svc, trade-export-svc, retail-svc] }
+              - { key: app, operator: In, values: [auth-svc, core-erp-svc, crm-svc, hrm-svc, reporting-svc, ai-svc, trade-export-svc, retail-svc, postgres-backup] }
       ports:
         - { protocol: TCP, port: 5432 }
 ---
-# NATS accepts client connections only from the platform services.
+# NATS accepts client connections from the platform services (4222) and route
+# (cluster) connections from its own peers (6222) so the 3-node cluster can form.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -93,6 +94,10 @@ spec:
               - { key: app, operator: In, values: [auth-svc, core-erp-svc, crm-svc, hrm-svc, reporting-svc, ai-svc, trade-export-svc, retail-svc] }
       ports:
         - { protocol: TCP, port: 4222 }
+    - from:
+        - podSelector: { matchLabels: { app: nats } }
+      ports:
+        - { protocol: TCP, port: 6222 }
 ---
 # ===========================================================================
 # Egress hardening. Default-deny egress for every pod, then the minimum allows:
@@ -171,3 +176,34 @@ spec:
               - 192.168.0.0/16
       ports:
         - { protocol: TCP, port: 443 }
+---
+# NATS nodes initiate route connections to each other (6222) to form the cluster,
+# so — unlike a single broker — they need egress to their own peers.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-nats-egress-cluster
+  namespace: digicore
+spec:
+  podSelector: { matchLabels: { app: nats } }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector: { matchLabels: { app: nats } }
+      ports:
+        - { protocol: TCP, port: 6222 }
+---
+# The backup CronJob connects out to Postgres (:5432) to run pg_dump.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backup-egress-to-postgres
+  namespace: digicore
+spec:
+  podSelector: { matchLabels: { app: postgres-backup } }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector: { matchLabels: { app: postgres } }
+      ports:
+        - { protocol: TCP, port: 5432 }

@@ -32,6 +32,16 @@ const ACK_WAIT: Duration = Duration::from_secs(30);
 /// Backoff applied when NAKing a transient failure.
 const NAK_BACKOFF: Duration = Duration::from_secs(5);
 
+/// Stream replication factor, from `JETSTREAM_REPLICAS` (default 1). Mirrors
+/// `platform-outbox`: production's 3-node cluster sets 3 for HA; dev/CI use 1.
+fn stream_replicas() -> usize {
+    std::env::var("JETSTREAM_REPLICAS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(1)
+        .clamp(1, 5)
+}
+
 pub struct NatsConsumer {
     client: async_nats::Client,
     handler: Arc<dyn InboundEventHandler>,
@@ -62,6 +72,7 @@ impl NatsConsumer {
             .get_or_create_stream(jetstream::stream::Config {
                 name: STREAM_NAME.to_string(),
                 subjects: vec![STREAM_SUBJECTS.to_string()],
+                num_replicas: stream_replicas(),
                 ..Default::default()
             })
             .await
@@ -78,6 +89,7 @@ impl NatsConsumer {
             .get_or_create_stream(jetstream::stream::Config {
                 name: DLQ_STREAM_NAME.to_string(),
                 subjects: vec![DLQ_SUBJECTS.to_string()],
+                num_replicas: stream_replicas(),
                 ..Default::default()
             })
             .await

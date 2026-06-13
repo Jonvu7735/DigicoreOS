@@ -32,6 +32,17 @@ const DUPLICATE_WINDOW: Duration = Duration::from_secs(120);
 /// Header carrying the dedup key (the outbox event id).
 const MSG_ID_HEADER: &str = "Nats-Msg-Id";
 
+/// Stream replication factor, from `JETSTREAM_REPLICAS` (default 1). Production
+/// runs a 3-node JetStream cluster and sets this to 3 for HA; dev/CI use a
+/// single node and leave it at 1. Clamped to JetStream's supported 1..=5.
+pub(crate) fn stream_replicas() -> usize {
+    std::env::var("JETSTREAM_REPLICAS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(1)
+        .clamp(1, 5)
+}
+
 pub struct JetStreamPublisher {
     context: jetstream::Context,
 }
@@ -68,6 +79,7 @@ pub async fn ensure_stream(context: &jetstream::Context) -> Result<(), String> {
             name: STREAM_NAME.to_string(),
             subjects: vec![STREAM_SUBJECTS.to_string()],
             duplicate_window: DUPLICATE_WINDOW,
+            num_replicas: stream_replicas(),
             ..Default::default()
         })
         .await

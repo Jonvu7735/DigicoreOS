@@ -43,14 +43,17 @@ spec:
             description: "auth_refresh_failed_total is averaging >1/s over 5m."
     - name: digicore.events
       rules:
-        # The event pipeline is failing to apply inbound messages.
-        - alert: DigicoreEventConsumerFailing
-          expr: sum(rate(events_consumed_failed_total[5m])) > 0
-          for: 10m
-          labels: { severity: warning }
+        # events_consumed_failed_total now increments only when a message is
+        # dead-lettered (parked on the platform_dlq stream after MAX_DELIVER
+        # retries) — i.e. a poison event that needs human attention. Transient
+        # handler errors are retried via NAK and do NOT trip this.
+        - alert: DigicoreEventDeadLettered
+          expr: sum(increase(events_consumed_failed_total[10m])) > 0
+          for: 5m
+          labels: { severity: critical }
           annotations:
-            summary: "Event consumers are failing"
-            description: "events_consumed_failed_total is increasing over 10m — a handler keeps erroring."
+            summary: "Events are being dead-lettered"
+            description: "events_consumed_failed_total rose in the last 10m — one or more events exhausted retries and were parked on platform_dlq. Inspect the DLQ and the handler logs."
     - name: digicore.http
       rules:
         - alert: DigicoreHighHttpErrorRate
