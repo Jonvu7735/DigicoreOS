@@ -13,14 +13,16 @@ function fmt(v: unknown): string {
 // Illustrative series for the charts (the overview endpoint returns headline
 // metrics, not time series); the KPI numbers below are real, from the API.
 const MONTHS = ["T1", "T2", "T3", "T4", "T5", "T6", "T7"];
+const C1 = "#3c50e0"; // brand blue
+const C2 = "#80caee"; // sky
 const BAR = [
-  { color: "#6d5bd0", values: [12, 18, 14, 22, 19, 26, 24] },
-  { color: "#c4b5fd", values: [6, 9, 7, 11, 9, 13, 12] },
+  { color: C1, values: [12, 18, 14, 22, 19, 26, 24] },
+  { color: C2, values: [6, 9, 7, 11, 9, 13, 12] },
 ];
 const LINE_MONTHS = ["T1", "T2", "T3", "T4", "T5", "T6"];
 const LINE = [
-  { color: "#6d5bd0", values: [20, 28, 26, 34, 40, 52] },
-  { color: "#34d399", values: [14, 18, 22, 26, 31, 38] },
+  { color: C1, values: [20, 28, 26, 34, 40, 52] },
+  { color: C2, values: [14, 18, 22, 26, 31, 38] },
 ];
 
 const KPIS = [
@@ -65,11 +67,11 @@ export function HomePage() {
           <BarChart labels={MONTHS} series={BAR} />
           <div className="legend">
             <span>
-              <span className="dot" style={{ background: "#6d5bd0" }} />
+              <span className="dot" style={{ background: C1 }} />
               Chốt đơn
             </span>
             <span>
-              <span className="dot" style={{ background: "#c4b5fd" }} />
+              <span className="dot" style={{ background: C2 }} />
               Tiềm năng
             </span>
           </div>
@@ -118,11 +120,11 @@ export function HomePage() {
             <div className="section-title">Đơn theo tháng</div>
             <div className="legend" style={{ marginTop: 2 }}>
               <span>
-                <span className="dot" style={{ background: "#6d5bd0" }} />
+                <span className="dot" style={{ background: C1 }} />
                 Hoàn tất
               </span>
               <span>
-                <span className="dot" style={{ background: "#34d399" }} />
+                <span className="dot" style={{ background: C2 }} />
                 Đang xử lý
               </span>
             </div>

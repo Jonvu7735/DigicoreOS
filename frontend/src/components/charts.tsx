@@ -171,8 +171,8 @@ export function Gauge({ value }: { value: number }) {
     <svg className="chart" viewBox={`0 0 ${W} ${H}`} role="img" aria-hidden>
       <defs>
         <linearGradient id="gauge-grad" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%" stopColor="#6d5bd0" />
-          <stop offset="100%" stopColor="#8b5cf6" />
+          <stop offset="0%" stopColor="#3c50e0" />
+          <stop offset="100%" stopColor="#80caee" />
         </linearGradient>
       </defs>
       <path d={path} fill="none" stroke={GRID} strokeWidth={stroke} strokeLinecap="round" />

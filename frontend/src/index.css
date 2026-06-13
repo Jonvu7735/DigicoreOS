@@ -1,14 +1,20 @@
 :root {
-  --bg: #f3f1fb; /* lavender app background (template) */
+  --bg: #f1f5f9; /* slate-100 content bg (TailAdmin) */
   --surface: #ffffff;
-  --surface-soft: #f7f7fc;
-  --fg: #1a1830;
-  --text: #4b4a63;
-  --muted: #8b8aa3;
-  --border: #ececf4;
-  --accent: #6d5bd0; /* template purple */
-  --accent-2: #8b5cf6;
-  --accent-soft: #efeafd;
+  --surface-soft: #f7f9fc;
+  --fg: #1c2434;
+  --text: #4b5675;
+  --muted: #8a99af;
+  --border: #e2e8f0;
+  --accent: #3c50e0; /* TailAdmin brand blue */
+  --accent-2: #6577f3;
+  --accent-soft: #eef1ff;
+  /* dark sidebar */
+  --side-bg: #1c2434;
+  --side-fg: #dee4ee;
+  --side-muted: #8a99af;
+  --side-active: rgba(255, 255, 255, 0.09);
+  --side-border: rgba(255, 255, 255, 0.08);
   --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05), 0 6px 16px rgba(15, 23, 42, 0.04);
   --shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 14px 36px rgba(79, 70, 229, 0.08);
   --font: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", Roboto,
@@ -50,16 +56,17 @@ a {
 }
 
 .sidebar {
-  flex: 0 0 252px;
-  width: 252px;
-  background: var(--surface);
-  border-right: 1px solid var(--border);
+  flex: 0 0 260px;
+  width: 260px;
+  background: var(--side-bg);
+  border-right: 1px solid var(--side-border);
   position: sticky;
   top: 0;
   height: 100vh;
   display: flex;
   flex-direction: column;
-  padding: 18px 14px;
+  padding: 18px 16px;
+  color: var(--side-fg);
 }
 
 .brand {
@@ -67,10 +74,10 @@ a {
   align-items: center;
   gap: 10px;
   font-weight: 800;
-  font-size: 1.08rem;
-  color: var(--fg);
+  font-size: 1.1rem;
+  color: #fff;
   text-decoration: none;
-  padding: 6px 10px 14px;
+  padding: 6px 8px 14px;
 }
 
 .brand-dot {
@@ -92,39 +99,53 @@ a {
   align-items: center;
   gap: 11px;
   padding: 10px 12px;
-  border-radius: 11px;
-  color: #475569;
+  border-radius: 10px;
+  color: var(--side-fg);
   text-decoration: none;
   font-size: 0.93rem;
   font-weight: 550;
-  border: 1px solid transparent;
 }
 
 .side-link .ic {
   width: 20px;
   text-align: center;
   font-size: 1.05rem;
-  opacity: 0.9;
+  opacity: 0.95;
 }
 
 .side-link:hover {
-  background: var(--surface-soft);
-  color: var(--fg);
+  background: var(--side-active);
+  color: #fff;
 }
 
 .side-link.active {
-  background: var(--accent-soft);
-  color: var(--accent);
-  border-color: #e0e3ff;
+  background: var(--accent);
+  color: #fff;
   font-weight: 650;
+  box-shadow: 0 6px 16px rgba(60, 80, 224, 0.4);
 }
 
 .side-foot {
   margin-top: auto;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--side-border);
   padding-top: 12px;
   display: grid;
   gap: 10px;
+}
+
+.sidebar .user-meta strong {
+  color: #fff;
+}
+.sidebar .user-meta {
+  color: var(--side-muted);
+}
+.sidebar button.ghost {
+  border-color: var(--side-border);
+  color: var(--side-fg);
+}
+.sidebar button.ghost:hover {
+  background: var(--side-active);
+  border-color: var(--side-border);
 }
 
 .user-card {
@@ -641,9 +662,13 @@ code {
   align-items: center;
   gap: 10px;
   padding: 8px 10px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--side-border);
   border-radius: 12px;
   margin-bottom: 12px;
+}
+
+.ws-meta strong {
+  color: #fff !important;
 }
 
 .ws .avatar {
@@ -679,12 +704,12 @@ code {
   align-items: center;
   gap: 8px;
   padding: 9px 11px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--side-border);
   border-radius: 10px;
-  color: var(--muted);
+  color: var(--side-muted);
   font-size: 0.86rem;
-  margin-bottom: 14px;
-  background: var(--surface-soft);
+  margin-bottom: 10px;
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .side-group-label {
@@ -692,14 +717,14 @@ code {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #b4b2c6;
+  color: var(--side-muted);
   padding: 14px 12px 6px;
 }
 
 .side-link .count {
   margin-left: auto;
-  background: var(--surface-soft);
-  color: var(--muted);
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--side-fg);
   border-radius: 999px;
   font-size: 0.72rem;
   font-weight: 700;
@@ -707,8 +732,8 @@ code {
 }
 
 .side-link.active .count {
-  background: #fff;
-  color: var(--accent);
+  background: rgba(255, 255, 255, 0.25);
+  color: #fff;
 }
 
 .upgrade-card {
