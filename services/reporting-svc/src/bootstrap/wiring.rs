@@ -108,7 +108,7 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
 
     // Inbound consumer: drain platform.> into the read models (when NATS is up).
     if let Some(client) = connect_consumer(config.nats_url.as_deref()).await {
-        tokio::spawn(NatsConsumer::new(client, ingestor).run());
+        tokio::spawn(NatsConsumer::new(client, ingestor, "reporting-svc").run());
         tracing::info!("event consumer started");
     }
 

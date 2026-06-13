@@ -3,8 +3,9 @@
 //! Shared inbound event-bus consumer for every event-CONSUMING service
 //! (reporting-svc, ai-svc, …) — the subscriber-side mirror of `platform-outbox`:
 //! - [`InboundEventHandler`]: the port a service implements (decode + project).
-//! - [`NatsConsumer`]: background worker subscribing to `platform.>` and
-//!   dispatching each message to the handler.
+//! - [`NatsConsumer`]: background worker binding a durable JetStream consumer on
+//!   `platform.>` and dispatching each message to the handler, ACK/NAK/dead-
+//!   lettering per outcome.
 //! - [`connect_consumer`]: connect to NATS (the consumer runs only when reachable).
 //!
 //! Decoding the wire payload is the service's job (it owns the `event-models`

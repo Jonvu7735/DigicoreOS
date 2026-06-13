@@ -12,8 +12,9 @@ pub trait OutboxRepository: Send + Sync {
     async fn mark_published(&self, event_id: &Uuid) -> OutboxResult<()>;
 }
 
-/// Raw event-bus publisher (subject + bytes).
+/// Raw event-bus publisher (subject + bytes + dedup id). `msg_id` is the outbox
+/// event id, sent to the bus as the idempotency/dedup key.
 #[async_trait]
 pub trait RawEventPublisher: Send + Sync {
-    async fn publish(&self, subject: &str, payload: &[u8]) -> OutboxResult<()>;
+    async fn publish(&self, subject: &str, payload: &[u8], msg_id: &Uuid) -> OutboxResult<()>;
 }

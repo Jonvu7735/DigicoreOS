@@ -88,7 +88,7 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
     // generating insights (when NATS is reachable).
     let ingestor: Arc<dyn InboundEventHandler> = Arc::new(EventIngestor::new(insights.clone()));
     if let Some(client) = connect_consumer(config.nats_url.as_deref()).await {
-        tokio::spawn(NatsConsumer::new(client, ingestor).run());
+        tokio::spawn(NatsConsumer::new(client, ingestor, "ai-svc").run());
         tracing::info!("event consumer started");
     }
 

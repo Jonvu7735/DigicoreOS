@@ -66,10 +66,9 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
-      # NATS for the cross-service event-backbone E2E test (reporting-svc/e2e.rs).
-      nats:
-        image: nats:2.10
-        ports: ["4222:4222"]
+      # NATS is started as a `docker run` step below (not a service container)
+      # because the event backbone now uses JetStream, which needs the `-js`
+      # flag — and GitHub service containers can't override the image command.
     steps:
       - uses: actions/checkout@v4
 
@@ -78,8 +77,13 @@ jobs:
           rustup toolchain install 1.96.0 --profile minimal
           rustc --version
 
-      # Service containers without a health check may not accept connections yet;
-      # the E2E test would otherwise silently skip. Wait for the NATS port.
+      # JetStream-enabled NATS for the cross-service event-backbone E2E test
+      # (reporting-svc/e2e.rs). `-js` turns on the JetStream engine.
+      - name: Start NATS (JetStream)
+        run: docker run -d --name nats -p 4222:4222 nats:2.10 -js
+
+      # The container has no health check, so wait for the port before testing;
+      # the E2E test would otherwise silently skip.
       - name: Wait for NATS
         run: |
           for i in $(seq 1 30); do

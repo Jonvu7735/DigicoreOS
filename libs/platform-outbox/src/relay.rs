@@ -1,5 +1,9 @@
 //! Outbox relay worker: drains `outbox_events` to the bus (DATA-STRATEGY.md
-//! §3.2). Publish-then-mark = at-least-once; consumers dedupe on `event_id`.
+//! §3.2). Publish-then-mark = at-least-once: the publisher only returns `Ok`
+//! after the JetStream server has durably stored the event, so a row is marked
+//! published only once delivery is guaranteed. The event id is sent as the bus
+//! dedup key, so a crash between publish and mark — or two relays racing —
+//! cannot create a duplicate; consumers also dedupe on `event_id`.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -42,7 +46,7 @@ impl OutboxRelay {
         let mut sent = 0;
         for msg in messages {
             self.publisher
-                .publish(&msg.subject, &msg.payload_bytes())
+                .publish(&msg.subject, &msg.payload_bytes(), &msg.event_id)
                 .await?;
             self.outbox.mark_published(&msg.event_id).await?;
             metrics::counter!("events_published_total", "event_type" => msg.event_type.clone())
@@ -106,7 +110,12 @@ mod tests {
     }
     #[async_trait]
     impl RawEventPublisher for FakePublisher {
-        async fn publish(&self, subject: &str, _payload: &[u8]) -> OutboxResult<()> {
+        async fn publish(
+            &self,
+            subject: &str,
+            _payload: &[u8],
+            _msg_id: &Uuid,
+        ) -> OutboxResult<()> {
             if self.fail {
                 return Err(OutboxError::Publish("boom".into()));
             }

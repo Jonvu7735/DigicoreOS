@@ -37,6 +37,7 @@ libs/
   platform-outbox/         # Transactional outbox: insert_outbox + relay (producer side)
   platform-events/         # NATS consumer + InboundEventHandler port (consumer side)
   platform-observability/  # JSON tracing + Prometheus bootstrap (OBSERVABILITY.md)
+  platform-ratelimit/      # Per-route token-bucket rate limiting (wired into every service)
 services/                  # one crate per microservice (see table above)
 deploy/
   docker-compose.dev.yml   # Local Postgres + NATS for development
