@@ -41,17 +41,39 @@ export function LoyaltyPage() {
     );
   }, []);
 
-  return (
-    <main className="card wide">
-      <header className="row">
-        <h1>Loyalty</h1>
-        <Link className="ghost-link" to="/">
-          ← Trang chủ
-        </Link>
-      </header>
-      <p className="muted">Tài khoản điểm thưởng của khách hàng (Retail).</p>
+  const totalPoints = accounts.reduce((s, a) => s + (a.points_balance ?? 0), 0);
+  const totalSpend = accounts.reduce((s, a) => s + (a.lifetime_spend ?? 0), 0);
 
-      <RulesPanel />
+  return (
+    <>
+      <section className="page-head">
+        <h1>Loyalty</h1>
+        <p className="subtitle">
+          Tài khoản điểm thưởng của khách hàng (Retail).
+        </p>
+      </section>
+
+      <section className="stat-grid">
+        <div className="stat">
+          <span className="stat-label">Tài khoản</span>
+          <span className="stat-value">{accounts.length}</span>
+        </div>
+        <div className="stat">
+          <span className="stat-label">Tổng điểm</span>
+          <span className="stat-value">
+            {totalPoints.toLocaleString("vi-VN")}
+          </span>
+        </div>
+        <div className="stat">
+          <span className="stat-label">Tổng chi tiêu</span>
+          <span className="stat-value">
+            {totalSpend.toLocaleString("vi-VN")}
+          </span>
+        </div>
+      </section>
+
+      <section className="card">
+        <RulesPanel />
 
       {loading && <p className="muted">Đang tải…</p>}
       {error && <p className="error">{error}</p>}
@@ -81,7 +103,8 @@ export function LoyaltyPage() {
           </tbody>
         </table>
       )}
-    </main>
+      </section>
+    </>
   );
 }
 

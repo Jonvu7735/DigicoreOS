@@ -49,7 +49,9 @@ async function seed(page: Page) {
     const p = new URL(route.request().url()).pathname;
     const post = route.request().method() === "POST";
     let body: unknown = [];
-    if (post && p.endsWith("/ai/query"))
+    if (p.endsWith("/reporting/overview"))
+      body = { report: "overview", generated_at: now, data: { revenue: 1245000000, orders: 1284, customers: 342, products: 87, inventory_units: 15600, employees: 24 } };
+    else if (post && p.endsWith("/ai/query"))
       body = { answer: "Để đặt chỗ một lô hàng: vào màn Shipments → Tạo lô hàng (nước đến + Incoterm), rồi nhấn 'Đặt chỗ' để chuyển sang trạng thái BOOKED. Sau đó thêm dòng hàng (packing list) ở màn chi tiết.", model: "stub-assistant" };
     else if (post && p.endsWith("/crm/customers")) body = { id: "c-demo", name: "Demo Khách 482931" };
     else if (post && p.endsWith("/erp/products")) body = { id: "p-demo" };
@@ -79,7 +81,7 @@ test("capture all screens", async ({ page }) => {
   await seed(page);
 
   await page.goto("/");
-  await page.waitForSelector("text=Đăng nhập thành công");
+  await page.waitForSelector("text=Lối tắt");
   await shot("02-home");
 
   await page.goto("/loyalty");

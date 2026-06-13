@@ -64,16 +64,38 @@ export function ShipmentsPage() {
     setShipments((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
   }
 
-  return (
-    <main className="card wide">
-      <header className="row">
-        <h1>Shipments</h1>
-        <Link className="ghost-link" to="/">
-          ← Trang chủ
-        </Link>
-      </header>
-      <p className="muted">Lô hàng xuất khẩu (Trade-export).</p>
+  const countOf = (st: string) =>
+    shipments.filter((s) => s.status === st).length;
 
+  return (
+    <>
+      <section className="page-head">
+        <h1>Shipments</h1>
+        <p className="subtitle">Lô hàng xuất khẩu (Trade-export).</p>
+      </section>
+
+      <section className="stat-grid">
+        <div className="stat">
+          <span className="stat-label">Tổng lô hàng</span>
+          <span className="stat-value">{shipments.length}</span>
+        </div>
+        <div className="stat">
+          <span className="stat-label">Nháp / Đặt chỗ</span>
+          <span className="stat-value">
+            {countOf("DRAFT") + countOf("BOOKED")}
+          </span>
+        </div>
+        <div className="stat">
+          <span className="stat-label">Đã gửi đi</span>
+          <span className="stat-value">{countOf("DISPATCHED")}</span>
+        </div>
+        <div className="stat">
+          <span className="stat-label">Đã huỷ</span>
+          <span className="stat-value">{countOf("CANCELLED")}</span>
+        </div>
+      </section>
+
+      <section className="card">
       <form onSubmit={onCreate} className="create-row">
         <input
           placeholder="Nước đến (VD: VN)"
@@ -123,7 +145,8 @@ export function ShipmentsPage() {
           </tbody>
         </table>
       )}
-    </main>
+      </section>
+    </>
   );
 }
 

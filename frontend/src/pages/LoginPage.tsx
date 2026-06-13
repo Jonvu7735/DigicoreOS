@@ -27,7 +27,8 @@ export function LoginPage() {
   }
 
   return (
-    <main className="card">
+    <div className="auth-shell">
+      <main className="card">
       <h1>DigicoreOS</h1>
       <p className="muted">Đăng nhập để tiếp tục</p>
       <form onSubmit={onSubmit}>
@@ -59,6 +60,7 @@ export function LoginPage() {
           {busy ? "Đang đăng nhập…" : "Đăng nhập"}
         </button>
       </form>
-    </main>
+      </main>
+    </div>
   );
 }
