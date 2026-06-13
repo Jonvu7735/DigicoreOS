@@ -262,6 +262,15 @@ Các blocker hạ tầng nêu ở đánh giá sẵn sàng go-live đã được 
 | HA Postgres thật | ✅ (opt-in) | Overlay **CloudNativePG** `deploy/k8s/ha-postgres/`: Cluster 3 instance + failover + WAL archiving/PITR + ScheduledBackup; giữ `DATABASE_URL` qua Service ExternalName `postgres` → `digicore-pg-rw`. Tách khỏi kustomization gốc (chọn dùng). |
 | CD tự động | ✅ (template) | `.github/workflows/deploy.yml`: `workflow_dispatch` (thủ công, không chạy khi push → không ảnh hưởng CI), build+push 8 image, `kustomize apply`, gate qua environment `production`. Cần điền secrets registry/kubeconfig. |
 
-**Còn lại (chưa làm — nên trước GA):** secret management nâng cao (Vault/Sealed Secrets), load/perf test + tinh chỉnh resource limits, chiến lược rollback migration (sqlx forward-only).
+## 14. Hoàn tất nhóm should-have còn lại
 
-> Lưu ý kiểm chứng: code (lockout) đã pass clippy/test; các manifest k8s mới đã validate cú pháp YAML nhưng **chưa `kubectl apply`/`kustomize build` trên cluster thật** — cần kiểm thử trên staging trước go-live. Migration `0004` + repo Postgres chạy ở job `integration` của CI.
+| Hạng mục | Trạng thái | Thay đổi |
+|---|---|---|
+| Secret management nâng cao | ✅ (opt-in) | `deploy/k8s/secrets/`: ví dụ **SealedSecret** (Bitnami) và **ExternalSecret** (External Secrets Operator → Vault/AWS/GCP) cho `digicore-postgres` + `digicore-jwt`, kèm README hướng dẫn bỏ secret dev khỏi `10-config.yaml` và xoay vòng khóa. |
+| Load/perf test | ✅ | `deploy/load/k6-smoke.js`: k6 chạy login + read thật, threshold `p95<500ms`, `http_req_failed<1%` (fail → exit≠0, gate được). README hướng dẫn dùng kết quả để tinh chỉnh resource/HPA. |
+| Tinh chỉnh resource | ✅ (quy trình) | Không đổi mù số liệu; README load-test mô tả cách đọc kết quả k6 để chỉnh `requests/limits` + `maxReplicas` (đã có HPA 2→5). |
+| Rollback migration | ✅ (chiến lược) | `docs/MIGRATIONS.md`: sqlx forward-only → **expand/contract** + khôi phục từ backup (logical dump hoặc PITR của CNPG) + backup ngay trước deploy có migration. |
+
+> Lưu ý kiểm chứng: code (lockout) pass clippy/test; k6 script pass kiểm tra cú pháp; mọi YAML mới validate cú pháp nhưng **chưa `kubectl apply`/`kustomize build` trên cluster thật** — cần kiểm thử staging trước go-live. Migration `0004` + repo Postgres chạy ở job `integration` của CI.
+
+> **Kết luận go-live:** tất cả blocker (§12) và should-have (§13–14) đã được xử lý ở mức code + manifest/template + tài liệu. Việc còn lại thuần vận hành: cung cấp secret thật, cài operator (CNPG/Sealed/External Secrets), chạy k6 trên staging để chốt resource, và `kustomize build`/`apply` kiểm thử trên cluster trước khi GA.
