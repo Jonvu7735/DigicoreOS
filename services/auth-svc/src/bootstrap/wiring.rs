@@ -14,12 +14,13 @@ use sqlx::PgPool;
 use crate::api;
 use crate::bootstrap::config::AppConfig;
 use crate::domain::identity::ports::{
-    PasswordHasher, ProvisioningRepository, RefreshTokenHasher, RefreshTokenRepository,
-    RoleRepository, TenantRepository, TokenIssuer, UserRepository,
+    LoginAttemptRepository, PasswordHasher, ProvisioningRepository, RefreshTokenHasher,
+    RefreshTokenRepository, RoleRepository, TenantRepository, TokenIssuer, UserRepository,
 };
 use crate::domain::identity::services::IdentityService;
 use crate::domain::shared::types::Clock;
 use crate::infra;
+use crate::infra::db::login_attempt_repo_pg::PgLoginAttemptRepo;
 use crate::infra::db::provisioning_repo_pg::PgProvisioningRepo;
 use crate::infra::db::refresh_token_repo_pg::PgRefreshTokenRepo;
 use crate::infra::db::role_repo_pg::PgRoleRepo;
@@ -65,20 +66,25 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
     let token_issuer: Arc<dyn TokenIssuer> = Arc::new(JwtTokenIssuer::from_config(&config.jwt)?);
     let password_hasher: Arc<dyn PasswordHasher> = Arc::new(Argon2PasswordHasher);
     let refresh_token_hasher: Arc<dyn RefreshTokenHasher> = Arc::new(Sha256RefreshTokenHasher);
+    let login_attempts: Arc<dyn LoginAttemptRepository> =
+        Arc::new(PgLoginAttemptRepo::new(db.clone()));
 
     // --- domain services ---
-    let identity = Arc::new(IdentityService::new(
-        user_repo,
-        tenant_repo,
-        role_repo,
-        refresh_token_repo,
-        provisioning,
-        token_issuer,
-        password_hasher,
-        refresh_token_hasher,
-        clock,
-        config.jwt.refresh_ttl_secs,
-    ));
+    let identity = Arc::new(
+        IdentityService::new(
+            user_repo,
+            tenant_repo,
+            role_repo,
+            refresh_token_repo,
+            provisioning,
+            token_issuer,
+            password_hasher,
+            refresh_token_hasher,
+            clock,
+            config.jwt.refresh_ttl_secs,
+        )
+        .with_login_attempts(login_attempts),
+    );
 
     // --- outbox relay (DATA-STRATEGY.md §3.2) ---
     // Spawn the relay only when NATS is reachable; otherwise events safely

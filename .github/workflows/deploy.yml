@@ -1,0 +1,89 @@
+# Continuous Deployment (manual). Builds + pushes one image per service from
+# deploy/Dockerfile, then rolls them out via kustomize. This is a TEMPLATE:
+# wire it to your registry + cluster by setting the repository secrets below.
+#
+# Trigger is workflow_dispatch ONLY — it never runs on push, so it cannot
+# interfere with the CI workflow. The `production` environment gates the rollout
+# behind whatever approval/reviewers you configure on that environment.
+#
+# Required secrets:
+#   REGISTRY            e.g. ghcr.io/your-org           (or a var)
+#   REGISTRY_USERNAME / REGISTRY_PASSWORD
+#   KUBE_CONFIG         base64-encoded kubeconfig for the target cluster
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to build and deploy"
+        required: true
+        default: "latest"
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-push:
+    name: build & push images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        include:
+          - { service: auth-svc, manifest: Cargo.toml }
+          - { service: core-erp-svc, manifest: Cargo.toml }
+          - { service: crm-svc, manifest: Cargo.toml }
+          - { service: hrm-svc, manifest: Cargo.toml }
+          - { service: reporting-svc, manifest: Cargo.toml }
+          - { service: ai-svc, manifest: Cargo.toml }
+          - { service: trade-export-svc, manifest: verticals/trade-export-svc/Cargo.toml }
+          - { service: retail-svc, manifest: verticals/retail-svc/Cargo.toml }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Registry login
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.REGISTRY }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+      - name: Build & push ${{ matrix.service }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          push: true
+          build-args: |
+            SERVICE=${{ matrix.service }}
+            MANIFEST_PATH=${{ matrix.manifest }}
+          tags: ${{ secrets.REGISTRY }}/${{ matrix.service }}:${{ inputs.image_tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  rollout:
+    name: kustomize apply
+    needs: build-push
+    runs-on: ubuntu-latest
+    environment: production # gate rollout behind environment approval
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure kubectl
+        run: |
+          mkdir -p "$HOME/.kube"
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > "$HOME/.kube/config"
+      - name: Pin image tags
+        working-directory: deploy/k8s
+        run: |
+          for svc in auth-svc core-erp-svc crm-svc hrm-svc reporting-svc ai-svc trade-export-svc retail-svc; do
+            kustomize edit set image "digicore/${svc}=${{ secrets.REGISTRY }}/${svc}:${{ inputs.image_tag }}"
+          done
+      - name: Apply
+        run: kubectl apply -k deploy/k8s
+      - name: Wait for rollout
+        run: |
+          for svc in auth-svc core-erp-svc crm-svc hrm-svc reporting-svc ai-svc trade-export-svc retail-svc; do
+            kubectl -n digicore rollout status deployment/"$svc" --timeout=180s
+          done

@@ -13,8 +13,9 @@ use uuid::Uuid;
 
 use crate::domain::identity::entities::{RefreshToken, Tenant, User};
 use crate::domain::identity::ports::{
-    AccessTokenClaims, IssuedToken, PasswordHasher, ProvisioningRepository, RefreshTokenHasher,
-    RefreshTokenRepository, RoleRepository, TenantRepository, TokenIssuer, UserRepository,
+    AccessTokenClaims, IssuedToken, LoginAttemptRepository, PasswordHasher, ProvisioningRepository,
+    RefreshTokenHasher, RefreshTokenRepository, RoleRepository, TenantRepository, TokenIssuer,
+    UserRepository,
 };
 use crate::domain::identity::provisioning::{NewRole, TenantProvisioning};
 use crate::domain::shared::error::{DomainError, DomainResult};
@@ -40,6 +41,11 @@ pub struct UserView {
     pub roles: Vec<String>,
 }
 
+/// Consecutive failed logins that trigger a temporary lockout (SECURITY.md §5.2).
+const LOGIN_LOCKOUT_THRESHOLD: i64 = 5;
+/// How long an account stays locked once the threshold is hit (minutes).
+const LOGIN_LOCKOUT_MINUTES: i64 = 15;
+
 pub struct IdentityService {
     user_repo: Arc<dyn UserRepository>,
     tenant_repo: Arc<dyn TenantRepository>,
@@ -51,6 +57,9 @@ pub struct IdentityService {
     refresh_token_hasher: Arc<dyn RefreshTokenHasher>,
     clock: Arc<dyn Clock>,
     refresh_ttl_secs: i64,
+    /// Optional brute-force guard. When `None` (e.g. in unit tests) lockout is
+    /// disabled and login behaves exactly as before; wiring enables it in prod.
+    login_attempts: Option<Arc<dyn LoginAttemptRepository>>,
 }
 
 impl IdentityService {
@@ -78,7 +87,14 @@ impl IdentityService {
             refresh_token_hasher,
             clock,
             refresh_ttl_secs,
+            login_attempts: None,
         }
+    }
+
+    /// Enable the brute-force lockout guard (builder; called by wiring).
+    pub fn with_login_attempts(mut self, repo: Arc<dyn LoginAttemptRepository>) -> Self {
+        self.login_attempts = Some(repo);
+        self
     }
 
     /// AUTH-FLOW.md §4 – Login.
@@ -92,6 +108,19 @@ impl IdentityService {
         raw_password: String,
         tenant_id: Option<TenantId>,
     ) -> DomainResult<LoginOutcome> {
+        // Brute-force guard: reject early if the account is currently locked,
+        // before doing any (expensive) password verification.
+        if let Some(attempts) = &self.login_attempts {
+            let status = attempts.status(&email).await?;
+            if let Some(locked_until) = status.locked_until {
+                if locked_until > self.clock.now_utc() {
+                    return Err(DomainError::Unauthorized(
+                        "account temporarily locked due to too many failed attempts".into(),
+                    ));
+                }
+            }
+        }
+
         let user = self
             .user_repo
             .find_by_email(&email)
@@ -105,14 +134,37 @@ impl IdentityService {
             .password_hasher
             .verify(&raw_password, &user.password_hash)?
         {
+            // Count the failed attempt; the repo locks the account once the
+            // threshold is reached. We still return the same generic error.
+            self.record_failed_login(&email).await?;
             return Err(DomainError::Unauthorized(
                 "invalid email or password".into(),
             ));
         }
 
+        // Successful credentials clear any accumulated failures.
+        if let Some(attempts) = &self.login_attempts {
+            attempts.reset(&email).await?;
+        }
+
         let tenant_id = self.resolve_login_tenant(&user.id, tenant_id).await?;
         let roles = self.role_names(&user.id, &tenant_id).await?;
         self.issue_session(user, tenant_id, roles).await
+    }
+
+    /// Record a failed login (no-op when the lockout guard is disabled).
+    async fn record_failed_login(&self, email: &Email) -> DomainResult<()> {
+        if let Some(attempts) = &self.login_attempts {
+            attempts
+                .record_failure(
+                    email,
+                    self.clock.now_utc(),
+                    LOGIN_LOCKOUT_THRESHOLD,
+                    Duration::minutes(LOGIN_LOCKOUT_MINUTES),
+                )
+                .await?;
+        }
+        Ok(())
     }
 
     /// AUTH-FLOW.md §5 – Refresh (with rotation: the presented token is revoked
@@ -560,14 +612,15 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use async_trait::async_trait;
-    use chrono::{DateTime, Utc};
+    use chrono::{DateTime, Duration, Utc};
     use uuid::Uuid;
 
     use super::IdentityService;
     use crate::domain::identity::entities::{RefreshToken, Role, Tenant, User};
     use crate::domain::identity::ports::{
-        AccessTokenClaims, IssuedToken, PasswordHasher, ProvisioningRepository, RefreshTokenHasher,
-        RefreshTokenRepository, RoleRepository, TenantRepository, TokenIssuer, UserRepository,
+        AccessTokenClaims, IssuedToken, LoginAttemptRepository, LoginLockStatus, PasswordHasher,
+        ProvisioningRepository, RefreshTokenHasher, RefreshTokenRepository, RoleRepository,
+        TenantRepository, TokenIssuer, UserRepository,
     };
     use crate::domain::identity::provisioning::{NewRole, TenantProvisioning};
     use crate::domain::shared::error::{DomainError, DomainResult};
@@ -808,6 +861,48 @@ mod tests {
         }
     }
 
+    /// In-memory `LoginAttemptRepository` for lockout tests. Mirrors the Postgres
+    /// repo's logic: count up, lock + reset the counter at the threshold.
+    #[derive(Default)]
+    struct FakeLoginAttempts {
+        failed: Mutex<i64>,
+        locked_until: Mutex<Option<DateTime<Utc>>>,
+        resets: Mutex<u32>,
+    }
+    #[async_trait]
+    impl LoginAttemptRepository for FakeLoginAttempts {
+        async fn status(&self, _email: &Email) -> DomainResult<LoginLockStatus> {
+            Ok(LoginLockStatus {
+                failed_count: *self.failed.lock().unwrap(),
+                locked_until: *self.locked_until.lock().unwrap(),
+            })
+        }
+        async fn record_failure(
+            &self,
+            _email: &Email,
+            now: DateTime<Utc>,
+            threshold: i64,
+            lock_for: Duration,
+        ) -> DomainResult<LoginLockStatus> {
+            let mut failed = self.failed.lock().unwrap();
+            *failed += 1;
+            if *failed >= threshold {
+                *self.locked_until.lock().unwrap() = Some(now + lock_for);
+                *failed = 0;
+            }
+            Ok(LoginLockStatus {
+                failed_count: *failed,
+                locked_until: *self.locked_until.lock().unwrap(),
+            })
+        }
+        async fn reset(&self, _email: &Email) -> DomainResult<()> {
+            *self.resets.lock().unwrap() += 1;
+            *self.failed.lock().unwrap() = 0;
+            *self.locked_until.lock().unwrap() = None;
+            Ok(())
+        }
+    }
+
     // --- helpers ------------------------------------------------------------
 
     fn user(active: bool) -> User {
@@ -870,6 +965,73 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(err, DomainError::Unauthorized(_)));
+    }
+
+    #[tokio::test]
+    async fn login_locks_account_after_threshold_failures() {
+        let (svc, _) = build(
+            vec![user(true)],
+            vec!["t1"],
+            vec![role("OWNER", "t1")],
+            false,
+        );
+        let attempts = Arc::new(FakeLoginAttempts::default());
+        let svc = svc.with_login_attempts(attempts.clone());
+
+        // 5 wrong-password attempts trip the lockout (LOGIN_LOCKOUT_THRESHOLD).
+        for _ in 0..5 {
+            let _ = svc.login(Email("a@b.com".into()), "pw".into(), None).await;
+        }
+        assert!(
+            attempts.locked_until.lock().unwrap().is_some(),
+            "account should be locked after the threshold"
+        );
+    }
+
+    #[tokio::test]
+    async fn login_rejected_while_locked_even_with_valid_credentials() {
+        // pw_ok = true: credentials are valid, but the account is already locked.
+        let (svc, _) = build(
+            vec![user(true)],
+            vec!["t1"],
+            vec![role("OWNER", "t1")],
+            true,
+        );
+        let attempts = Arc::new(FakeLoginAttempts::default());
+        *attempts.locked_until.lock().unwrap() = Some(Utc::now() + Duration::hours(1));
+        let svc = svc.with_login_attempts(attempts);
+
+        let err = svc
+            .login(Email("a@b.com".into()), "pw".into(), None)
+            .await
+            .unwrap_err();
+        match err {
+            DomainError::Unauthorized(msg) => assert!(msg.contains("locked")),
+            other => panic!("expected locked Unauthorized, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn successful_login_resets_failed_attempts() {
+        let (svc, _) = build(
+            vec![user(true)],
+            vec!["t1"],
+            vec![role("OWNER", "t1")],
+            true,
+        );
+        let attempts = Arc::new(FakeLoginAttempts::default());
+        *attempts.failed.lock().unwrap() = 3; // some prior failures
+        let svc = svc.with_login_attempts(attempts.clone());
+
+        svc.login(Email("a@b.com".into()), "pw".into(), None)
+            .await
+            .expect("valid login should succeed");
+        assert_eq!(
+            *attempts.failed.lock().unwrap(),
+            0,
+            "failures cleared on success"
+        );
+        assert_eq!(*attempts.resets.lock().unwrap(), 1);
     }
 
     #[tokio::test]

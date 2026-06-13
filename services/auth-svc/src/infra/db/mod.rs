@@ -1,5 +1,6 @@
 //! Postgres adapters for the `auth_svc` schema (DATA-STRATEGY.md §3.1).
 
+pub mod login_attempt_repo_pg;
 pub mod postgres;
 pub mod provisioning_repo_pg;
 pub mod refresh_token_repo_pg;

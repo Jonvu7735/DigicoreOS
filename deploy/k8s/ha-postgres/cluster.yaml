@@ -1,0 +1,84 @@
+# OPT-IN: High-availability Postgres via the CloudNativePG operator.
+#
+# This is an ALTERNATIVE to deploy/k8s/20-postgres.yaml (the single-pod
+# Deployment). Apply EITHER the single pod OR this overlay — not both. It is
+# deliberately NOT in the root kustomization so the default install stays simple.
+#
+# Prereq: install the CloudNativePG operator
+#   kubectl apply --server-side -f \
+#     https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/release-1.24/releases/cnpg-1.24.0.yaml
+#
+# What this gives you over the single pod:
+#   - 3 instances with synchronous streaming replication + automatic failover
+#   - Continuous WAL archiving to object storage (PITR), plus scheduled base backups
+#   - A stable read/write Service (digicore-pg-rw); we alias it to `postgres` so
+#     DATABASE_URL (postgres://...@postgres:5432) stays unchanged.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: digicore-pg
+  namespace: digicore
+spec:
+  instances: 3
+  imageName: ghcr.io/cloudnative-pg/postgresql:16
+  primaryUpdateStrategy: unsupervised
+
+  # Seed role/db to match the app's expectations (credentials from the existing
+  # digicore-postgres secret; CNPG reads username/password from `secretName`).
+  bootstrap:
+    initdb:
+      database: digicore
+      owner: digicore
+      secret:
+        name: digicore-postgres-app
+
+  storage:
+    size: 5Gi
+
+  resources:
+    requests: { cpu: "250m", memory: "256Mi" }
+    limits: { cpu: "1", memory: "1Gi" }
+
+  monitoring:
+    enablePodMonitor: true
+
+  # Continuous WAL archiving + base backups to object storage (PITR). Fill in your
+  # bucket and provide credentials in the `digicore-pg-backup-creds` secret.
+  backup:
+    retentionPolicy: "30d"
+    barmanObjectStore:
+      destinationPath: "s3://CHANGE-ME-digicore-pg-backups/"
+      s3Credentials:
+        accessKeyId:
+          name: digicore-pg-backup-creds
+          key: ACCESS_KEY_ID
+        secretAccessKey:
+          name: digicore-pg-backup-creds
+          key: ACCESS_SECRET_KEY
+      wal:
+        compression: gzip
+---
+# Daily base backup (WAL archiving above gives point-in-time recovery between them).
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: digicore-pg-daily
+  namespace: digicore
+spec:
+  schedule: "0 0 2 * * *" # 02:00 daily (CNPG uses 6-field cron)
+  backupOwnerReference: self
+  cluster:
+    name: digicore-pg
+---
+# Keep DATABASE_URL stable: `postgres` resolves to the CNPG read/write endpoint.
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: digicore
+spec:
+  type: ExternalName
+  externalName: digicore-pg-rw.digicore.svc.cluster.local
+  ports:
+    - port: 5432
+      targetPort: 5432

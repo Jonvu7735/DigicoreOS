@@ -4,7 +4,7 @@
 //! Domain services depend ONLY on these traits.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use platform_outbox::OutboxMessage;
 
 use crate::domain::identity::entities::{RefreshToken, Role, Tenant, User};
@@ -60,6 +60,36 @@ pub trait RefreshTokenRepository: Send + Sync {
     /// Look up a non-expired, non-revoked token by its hash.
     async fn find_valid_by_hash(&self, token_hash: &str) -> DomainResult<Option<RefreshToken>>;
     async fn revoke(&self, token_hash: &str) -> DomainResult<()>;
+}
+
+/// Snapshot of an account's failed-login state (SECURITY.md §5.2: protect
+/// `/auth/login` from brute force). `locked_until` in the future means the
+/// account is currently locked.
+#[derive(Debug, Clone, Default)]
+pub struct LoginLockStatus {
+    pub failed_count: i64,
+    pub locked_until: Option<DateTime<Utc>>,
+}
+
+/// Tracks consecutive failed logins per account and locks it after a threshold.
+/// Backed by Postgres (`auth_svc.login_attempts`); shared across replicas so a
+/// lockout holds platform-wide, not just per-process.
+#[async_trait]
+pub trait LoginAttemptRepository: Send + Sync {
+    /// Current lock state for an email (a past `locked_until` means unlocked).
+    async fn status(&self, email: &Email) -> DomainResult<LoginLockStatus>;
+    /// Record one failed attempt. When the running count reaches `threshold`,
+    /// set `locked_until = now + lock_for` and reset the counter. Returns the
+    /// resulting state. Implementations MUST apply this atomically.
+    async fn record_failure(
+        &self,
+        email: &Email,
+        now: DateTime<Utc>,
+        threshold: i64,
+        lock_for: Duration,
+    ) -> DomainResult<LoginLockStatus>;
+    /// Clear all failed-attempt state for an email (on a successful login).
+    async fn reset(&self, email: &Email) -> DomainResult<()>;
 }
 
 /// Transactional writes that also enqueue events into the outbox in the SAME

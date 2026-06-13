@@ -254,6 +254,14 @@ Các blocker hạ tầng nêu ở đánh giá sẵn sàng go-live đã được 
 | Network policy cho hạ tầng mới | ✅ | `60-network-policy.yaml`: mở route NATS↔NATS `6222` (ingress + egress) để cluster hình thành; cho backup job egress tới Postgres `5432`. |
 | Cảnh báo DLQ | ✅ | `deploy/observability/alerts.yaml`: `DigicoreEventDeadLettered` (critical) khi có event bị đẩy DLQ. |
 
-**Còn lại (should-have, chưa làm — nên trước GA):** secret management nâng cao (Vault/Sealed Secrets), lockout brute-force cho login, load/perf test + tinh chỉnh resource limits, chiến lược rollback migration, CD tự động, và **HA Postgres thật** qua operator.
+## 13. Nhóm should-have (đã triển khai tiếp)
 
-> Lưu ý kiểm chứng: các manifest k8s đã được validate cú pháp YAML (đa-document) nhưng **chưa được `kubectl apply`/`kustomize build` trên cluster thật** trong môi trường review — cần kiểm thử trên cluster staging trước khi go-live.
+| Hạng mục | Trạng thái | Thay đổi |
+|---|---|---|
+| Lockout brute-force login | ✅ | auth-svc: cổng `LoginAttemptRepository` + `auth_svc.login_attempts` (migration 0004) + logic khóa **5 lần sai → khóa 15 phút** (`services.rs`), repo Postgres atomic (`login_attempt_repo_pg.rs`). Bật trong wiring; **4 unit test** (khóa, chặn khi đã khóa dù đúng mật khẩu, reset khi thành công). Khóa chia sẻ across replica (lưu DB). |
+| HA Postgres thật | ✅ (opt-in) | Overlay **CloudNativePG** `deploy/k8s/ha-postgres/`: Cluster 3 instance + failover + WAL archiving/PITR + ScheduledBackup; giữ `DATABASE_URL` qua Service ExternalName `postgres` → `digicore-pg-rw`. Tách khỏi kustomization gốc (chọn dùng). |
+| CD tự động | ✅ (template) | `.github/workflows/deploy.yml`: `workflow_dispatch` (thủ công, không chạy khi push → không ảnh hưởng CI), build+push 8 image, `kustomize apply`, gate qua environment `production`. Cần điền secrets registry/kubeconfig. |
+
+**Còn lại (chưa làm — nên trước GA):** secret management nâng cao (Vault/Sealed Secrets), load/perf test + tinh chỉnh resource limits, chiến lược rollback migration (sqlx forward-only).
+
+> Lưu ý kiểm chứng: code (lockout) đã pass clippy/test; các manifest k8s mới đã validate cú pháp YAML nhưng **chưa `kubectl apply`/`kustomize build` trên cluster thật** — cần kiểm thử trên staging trước go-live. Migration `0004` + repo Postgres chạy ở job `integration` của CI.
