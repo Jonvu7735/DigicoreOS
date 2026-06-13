@@ -61,7 +61,7 @@ pub async fn build_app_state(config: AppConfig) -> anyhow::Result<AppState> {
     if let Some(client) = connect_consumer(config.nats_url.as_deref()).await {
         let ingestor: Arc<dyn InboundEventHandler> =
             Arc::new(LoyaltyIngestor::new(loyalty.clone()));
-        tokio::spawn(NatsConsumer::new(client, ingestor).run());
+        tokio::spawn(NatsConsumer::new(client, ingestor, "retail-svc").run());
         tracing::info!("event consumer started");
     }
 
