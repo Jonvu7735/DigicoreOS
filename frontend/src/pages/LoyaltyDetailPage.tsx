@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 
 import type { components } from "../api/schema";
 import { useApi } from "../api/useApi";
+import { badgeClass } from "../components/badge";
 
 type LoyaltyAccount = components["schemas"]["LoyaltyAccount"];
 type LedgerEntry = components["schemas"]["PointsLedgerEntry"];
@@ -60,7 +61,7 @@ export function LoyaltyDetailPage() {
       {account && (
         <>
           <p className="muted">
-            <span className="pill">{account.tier}</span> ·{" "}
+            <span className={badgeClass(account.tier)}>{account.tier}</span> ·{" "}
             <strong>{account.points_balance ?? 0}</strong> điểm · chi tiêu{" "}
             {account.lifetime_spend ?? 0}
           </p>

@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 
 import type { components } from "../api/schema";
 import { useApi } from "../api/useApi";
+import { badgeClass } from "../components/badge";
 
 type LoyaltyAccount = components["schemas"]["LoyaltyAccount"];
 type LoyaltyRules = components["schemas"]["LoyaltyRules"];
@@ -156,7 +157,7 @@ function LoyaltyRow({
         )}
       </td>
       <td>
-        <span className="pill">{account.tier ?? "—"}</span>
+        <span className={badgeClass(account.tier)}>{account.tier ?? "—"}</span>
       </td>
       <td className="num">{account.points_balance ?? 0}</td>
       <td className="num">{account.lifetime_spend ?? 0}</td>

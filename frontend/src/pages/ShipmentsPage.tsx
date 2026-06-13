@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 
 import type { components } from "../api/schema";
 import { useApi } from "../api/useApi";
+import { badgeClass } from "../components/badge";
 
 type Shipment = components["schemas"]["Shipment"];
 
@@ -201,7 +202,7 @@ function ShipmentRow({
       <td>{shipment.destination_country}</td>
       <td>{shipment.incoterm}</td>
       <td>
-        <span className="pill">{status ?? "—"}</span>
+        <span className={badgeClass(status)}>{status ?? "—"}</span>
       </td>
       <td className="redeem">
         {status === "DRAFT" && (

@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 
 import type { components } from "../api/schema";
 import { useApi } from "../api/useApi";
+import { badgeClass } from "../components/badge";
 
 type Shipment = components["schemas"]["Shipment"];
 type CargoLine = components["schemas"]["CargoLine"];
@@ -114,7 +115,7 @@ export function ShipmentDetailPage() {
           <p className="muted">
             Đến <strong>{shipment.destination_country}</strong> ·{" "}
             {shipment.incoterm} ·{" "}
-            <span className="pill">{shipment.status}</span>
+            <span className={badgeClass(shipment.status)}>{shipment.status}</span>
             {shipment.order_id ? ` · đơn ${shipment.order_id}` : ""}
           </p>
 
