@@ -129,10 +129,12 @@ async fn order_created_flows_outbox_relay_nats_consumer_to_orders_read_model() {
     insert_outbox(&mut tx, &msg).await.unwrap();
     tx.commit().await.unwrap();
 
-    // 2) Start the reporting consumer and let it subscribe BEFORE the relay
-    //    publishes — core NATS has no replay, so ordering matters.
+    // 2) Start the reporting consumer. JetStream is durable, so order vs. the
+    //    relay no longer matters (the consumer replays the stream); a unique
+    //    durable name keeps each test run's cursor isolated.
     let (handler, orders) = ingestor(&pool);
-    let consumer = tokio::spawn(NatsConsumer::new(client, handler).run());
+    let durable = format!("e2e-{}", Uuid::now_v7());
+    let consumer = tokio::spawn(NatsConsumer::new(client, handler, durable).run());
     tokio::time::sleep(Duration::from_secs(1)).await;
 
     // 3) Start the outbox relay; it publishes the queued row to NATS.

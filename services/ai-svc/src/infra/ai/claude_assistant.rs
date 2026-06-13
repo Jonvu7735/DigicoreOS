@@ -7,6 +7,8 @@
 //! client. The request-building and response-parsing are unit-tested; the
 //! network round-trip is exercised only in a configured deployment.
 
+use std::time::Duration;
+
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
@@ -17,6 +19,14 @@ use crate::domain::shared::error::{DomainError, DomainResult};
 const API_VERSION: &str = "2023-06-01";
 /// Upper bound on answer length — a business assistant reply, not an essay.
 const MAX_TOKENS: u32 = 1024;
+/// Overall deadline for a single LLM call. Without this, a stalled upstream
+/// would hold the request handler (and its DB connection) open indefinitely.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+/// Cap on establishing the TCP/TLS connection (DNS + handshake).
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+/// Attempts per call: the first try plus retries for transient transport errors
+/// (timeout / connect). HTTP error statuses are NOT retried — they are returned.
+const MAX_ATTEMPTS: u32 = 3;
 
 /// System prompt establishing the assistant's role and grounding it in the
 /// caller-supplied context.
@@ -34,8 +44,16 @@ pub struct ClaudeAssistant {
 
 impl ClaudeAssistant {
     pub fn new(api_key: String, model: String, base_url: String) -> Self {
+        // A bounded-timeout client: a hung LLM call must not pin a request
+        // handler open. Falls back to the default client only if the builder
+        // somehow fails (it cannot with these options).
+        let http = reqwest::Client::builder()
+            .timeout(REQUEST_TIMEOUT)
+            .connect_timeout(CONNECT_TIMEOUT)
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
         Self {
-            http: reqwest::Client::new(),
+            http,
             api_key,
             model,
             base_url: base_url.trim_end_matches('/').to_string(),
@@ -56,15 +74,31 @@ impl Assistant for ClaudeAssistant {
             }],
         };
 
-        let resp = self
-            .http
-            .post(format!("{}/v1/messages", self.base_url))
-            .header("x-api-key", &self.api_key)
-            .header("anthropic-version", API_VERSION)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| DomainError::Internal(format!("LLM request failed: {e}")))?;
+        let url = format!("{}/v1/messages", self.base_url);
+        let mut attempt = 1;
+        let resp = loop {
+            let result = self
+                .http
+                .post(&url)
+                .header("x-api-key", &self.api_key)
+                .header("anthropic-version", API_VERSION)
+                .json(&body)
+                .send()
+                .await;
+            match result {
+                Ok(resp) => break resp,
+                // Retry only transient transport failures; surface anything else.
+                Err(e) if attempt < MAX_ATTEMPTS && (e.is_timeout() || e.is_connect()) => {
+                    let backoff = Duration::from_millis(200 * 2u64.pow(attempt - 1));
+                    tracing::warn!(attempt, error = %e, "LLM request failed; retrying");
+                    tokio::time::sleep(backoff).await;
+                    attempt += 1;
+                }
+                Err(e) => {
+                    return Err(DomainError::Internal(format!("LLM request failed: {e}")));
+                }
+            }
+        };
 
         if !resp.status().is_success() {
             let status = resp.status();
