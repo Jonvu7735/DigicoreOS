@@ -81,7 +81,7 @@ test("capture all screens", async ({ page }) => {
   await seed(page);
 
   await page.goto("/");
-  await page.waitForSelector("text=Lối tắt");
+  await page.waitForSelector("text=Doanh thu");
   await shot("02-home");
 
   await page.goto("/loyalty");

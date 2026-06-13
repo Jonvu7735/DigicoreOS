@@ -820,6 +820,38 @@ code {
   font-size: 0.8rem;
 }
 
+.icon-btn {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  box-shadow: none;
+  padding: 0;
+}
+
+.icon-btn:hover {
+  background: var(--surface-soft);
+  color: var(--text);
+}
+
+.side-link .ic,
+.side-search > svg,
+.topbar-search > svg {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.kpi-ic svg,
+.stat-icon svg {
+  display: block;
+}
+
 /* ===== Dashboard grid, chart cards, KPI delta cards ================= */
 .dash-2 {
   display: grid;

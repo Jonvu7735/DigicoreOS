@@ -1,44 +1,40 @@
-import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
+import type { ReactNode } from "react";
+import { Link, NavLink, Outlet } from "react-router-dom";
 
 import { useAuth } from "../auth/useAuth";
+import {
+  IconBell,
+  IconBolt,
+  IconBox,
+  IconGift,
+  IconGrid,
+  IconPlay,
+  IconSearch,
+  IconSparkles,
+} from "./icons";
 
-type Item = { to: string; label: string; icon: string; end?: boolean; count?: string };
+type Item = { to: string; label: string; icon: ReactNode; end?: boolean };
 
 const GROUPS: { title: string; items: Item[] }[] = [
   {
     title: "Menu",
-    items: [{ to: "/", label: "Tổng quan", icon: "▦", end: true }],
+    items: [{ to: "/", label: "Tổng quan", icon: <IconGrid />, end: true }],
   },
   {
     title: "Nghiệp vụ",
     items: [
-      { to: "/loyalty", label: "Loyalty", icon: "🎁" },
-      { to: "/shipments", label: "Shipments", icon: "📦" },
+      { to: "/loyalty", label: "Loyalty", icon: <IconGift /> },
+      { to: "/shipments", label: "Shipments", icon: <IconBox /> },
     ],
   },
   {
     title: "Công cụ",
     items: [
-      { to: "/assistant", label: "Trợ lý AI", icon: "✨" },
-      { to: "/demo", label: "Demo", icon: "▶" },
+      { to: "/assistant", label: "Trợ lý AI", icon: <IconSparkles /> },
+      { to: "/demo", label: "Demo", icon: <IconPlay /> },
     ],
   },
 ];
-
-const TITLES: Record<string, string> = {
-  "/": "Tổng quan",
-  "/loyalty": "Loyalty",
-  "/shipments": "Shipments",
-  "/assistant": "Trợ lý AI",
-  "/demo": "Demo",
-};
-
-function pageTitle(path: string): string {
-  if (TITLES[path]) return TITLES[path];
-  if (path.startsWith("/loyalty")) return "Loyalty";
-  if (path.startsWith("/shipments")) return "Shipments";
-  return "DigicoreOS";
-}
 
 function initials(id?: string): string {
   if (!id) return "DC";
@@ -48,7 +44,6 @@ function initials(id?: string): string {
 
 export function AppLayout() {
   const { user, logout } = useAuth();
-  const { pathname } = useLocation();
 
   return (
     <div className="shell">
@@ -61,12 +56,12 @@ export function AppLayout() {
             <strong>DigicoreOS</strong>
             <span>{user?.tenant_id ?? "tenant"} · Pro</span>
           </span>
-          <span className="chev" aria-hidden>
-            ⌄
-          </span>
         </div>
 
-        <div className="side-search">🔍 Tìm kiếm…</div>
+        <div className="side-search">
+          <IconSearch size={16} />
+          Tìm kiếm…
+        </div>
 
         {GROUPS.map((group) => (
           <div key={group.title}>
@@ -81,11 +76,8 @@ export function AppLayout() {
                     isActive ? "side-link active" : "side-link"
                   }
                 >
-                  <span className="ic" aria-hidden>
-                    {item.icon}
-                  </span>
+                  <span className="ic">{item.icon}</span>
                   {item.label}
-                  {item.count && <span className="count">{item.count}</span>}
                 </NavLink>
               ))}
             </nav>
@@ -94,7 +86,7 @@ export function AppLayout() {
 
         <Link className="upgrade-card" to="/demo">
           <span className="uc-ic" aria-hidden>
-            ⚡
+            <IconBolt size={18} />
           </span>
           <p>Chạy demo Đơn hàng → Điểm thưởng để xem event backbone hoạt động.</p>
           <span className="uc-btn">Chạy demo →</span>
@@ -118,15 +110,17 @@ export function AppLayout() {
 
       <div className="content">
         <header className="topbar">
-          <span className="page-title">{pageTitle(pathname)}</span>
+          <span className="topbar-search">
+            <IconSearch size={16} />
+            Tìm nhanh…
+          </span>
           <span className="spacer" />
-          <span className="topbar-search">🔍 Tìm nhanh…</span>
-          <div className="top-actions">
-            <button className="btn-export">⤓ Xuất báo cáo</button>
-            <span className="avatar-sm" aria-hidden>
-              {initials(user?.id)}
-            </span>
-          </div>
+          <button className="icon-btn" aria-label="Thông báo">
+            <IconBell size={19} />
+          </button>
+          <span className="avatar-sm" aria-hidden>
+            {initials(user?.id)}
+          </span>
         </header>
         <main className="container">
           <Outlet />
